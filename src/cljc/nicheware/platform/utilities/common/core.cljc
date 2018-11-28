@@ -1,7 +1,16 @@
 (ns nicheware.platform.utilities.common.core
   (:require [clojure.string :as str]
+            [plumbing.core :as pc]
             #?(:clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
+
+;; ==================== Type conversion functions ==================
+
+(defn str-to-int
+  [string-value]
+  (try
+    (. Integer parseInt string-value)
+    (catch NumberFormatException _ nil)))
 
 ;; ================================= Sequence slice functions ======================
 
@@ -9,10 +18,6 @@
   "Determines a valid start end index for the given connection, error correcting the given range.
    It will correct errors is start is before first index or end is after the last,
    but nil for all other errors.
-
-```clojure
-  (map {:one 1 :two 2})
-```
   "
   [coll {:keys [start end] :or {start 0} :as slice-range}]
   (let [coll-length (count coll)
@@ -403,6 +408,12 @@
   (apply dissoc value-map
          (for [[key value] value-map :when (fn key)] key)))
 
+(defn remove-nil
+  "Removes all top-level entries with nil values from the map.
+   Uses dissoc, so reuse of map data will be maximised (.8 usec)"
+  [value-map]
+  (filter-remove-val nil? value-map))
+
 (defn remove-empty
   "Removes all top-level entries which are empty collections or nil values from the map.
    Uses dissoc, so reuse of map data will be maximised (.8 usec)"
@@ -414,6 +425,27 @@
    Uses dissoc, so reuse of map data will be maximised (.8 usec)"
   [value-map]
   (filter-remove-val nil? value-map))
+
+(defn transform-keys
+  "Transforms the top-level keys in the map using the given function.
+  Uses for-map. (14.564 usec).
+  Handles nil, returning nil"
+  [fn value-map]
+  (if (empty? value-map)
+    value-map
+    (pc/for-map [[key value] value-map]
+                (fn key) value)))
+
+(defn map-all-keys
+  "Transforms the top-level keys in the map using the given function.
+   Handles nil, returning nil"
+  [map-fn value-map]
+  (if (empty? value-map)
+    value-map
+    (pc/for-map [[key value] value-map]
+                (map-fn key) (if (map? value)
+                               (map-all-keys map-fn value)
+                               value))))
 
 ;; ============================= Vector functions ===================
 

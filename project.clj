@@ -3,12 +3,13 @@
   :url "http://github.com/nicheware/cljc-common"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
-  :dependencies [[org.clojure/clojure "1.9.0"]
+  :dependencies [[org.clojure/clojure "1.9.0-alpha17"]
                  [org.clojure/core.async "0.3.443"]
                  [org.clojure/core.match "0.3.0-alpha5"]
                  [funcool/promesa "1.9.0"]
                  [funcool/cats "2.1.0"]     ;; ensure 2.0.0 not included by below.
                  [io.nervous/kvlt "0.1.4"]
+                 [prismatic/plumbing "0.5.3"]
                  [cljstache "2.0.1"]
                  [thi.ng/strf "0.2.2"]
                  ]
@@ -27,7 +28,9 @@
                    :themes [:rdash]
                    :source-paths ["src/cljc"]
                    :source-uri "https://github.com/nicheware/cljc-common/blob/master/{filepath}#L{line}"
-                   }}}
+                   }}
+   :test {:dependencies [[camel-snake-kebab "0.4.0"]]}
+   }
   :aliases {"codox" ["with-profile" "+codox" "codox"]}
 
   )

@@ -1,7 +1,44 @@
 (ns nicheware.platform.utilities.common.core-test
   (:require [nicheware.platform.utilities.common.core :as sut]
+            [camel-snake-kebab.core :as csk]
             #?(:clj [clojure.test :as t]
                :cljs [cljs.test :as t :include-macros true])))
+
+;; ================================== Sample data ==================================
+
+(def map-with-nil
+  {
+   :one "one"
+   :two 2
+   :three nil
+   :four { :nested "value" :inside nil}
+   :five nil
+   :size ["vector" nil]
+   })
+
+(def map-without-nil
+  {
+   :one "one"
+   :two 2
+   :four { :nested "value" :inside nil}
+   :size ["vector" nil]
+   })
+
+(def map-with-odd-even
+  {
+   :one 1
+   :two 2
+   :three 3
+   :four 4
+   :five 5
+   })
+
+(def map-with-even
+  {
+   :two 2
+   :four 4
+   })
+
 
 ;; ================================= Sequence slice functions ======================
 
@@ -290,6 +327,46 @@
              (sut/deep-merge {:one 1 :two 2 :nested {:three 3 :nested {:four 4 :five 5}}}
                              {:two 4 :nested {:three 4 :nested {:four 5}}})))))
 
+
+(t/deftest test-filter-val
+  (t/testing "Filter val"
+    (t/is (= map-with-even (sut/filter-val even? map-with-odd-even)))))
+
+(t/deftest test-filter-remove-val
+  (t/testing "filter-remove-val"
+    (t/is (= map-with-even (sut/filter-remove-val odd? map-with-odd-even)))))
+
+(t/deftest test-remove-nil
+  (t/testing "Multiple nil values"
+    (t/is (= map-without-nil (sut/remove-nil map-with-nil)))
+    (t/is (= map-without-nil (sut/remove-nil map-without-nil)))))
+
+(t/deftest test-filter-key
+  (t/testing "Filter key"
+    (t/is (= map-with-even (sut/filter-key #{:two :four} map-with-odd-even)))))
+
+(t/deftest test-filter-remove-key
+  (t/testing "Filter remove key"
+    (t/is (= map-with-even (sut/filter-remove-key #{:one :three :five} map-with-odd-even)))))
+
+(t/deftest test-transform-keys
+  (t/testing "Transform keys to snake case"
+    (t/is (= { :services-name ["testme"] :custom-name {:*:0 ""}}
+           (sut/transform-keys csk/->kebab-case-keyword { :services_name ["testme"] :custom_name {:*:0 ""}})))
+    (t/is (nil? (sut/transform-keys identity nil)))))
+
+(t/deftest test-map-all-keys
+  (t/testing "Map all keys to snake case"
+    (t/is (= { :services-name ["testme"] :custom-name {:aa-b ""}}
+           (sut/map-all-keys csk/->kebab-case-keyword { :services_name ["testme"] :custom_name {:Aa_b ""}})))
+
+    (t/is (= { :services-name ["testme"] :custom-name {:*-:-0 ""}}
+           (sut/map-all-keys csk/->kebab-case-keyword { :services_name ["testme"] :custom_name {:*-:-0 ""}})))
+
+    (t/is (= { :services-name ["testme"] :custom-name {:*:-0 ""}}
+           (sut/map-all-keys (comp csk/->kebab-case-keyword csk/->camelCaseKeyword) { :services_name ["testme"] :custom_name {:*-:-0 ""}})))
+
+    (t/is (nil? (sut/map-all-keys identity nil)))))
 
 ;; ============================= Vector functions ===================
 
