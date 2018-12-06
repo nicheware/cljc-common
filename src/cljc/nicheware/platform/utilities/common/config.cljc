@@ -1,4 +1,8 @@
 (ns nicheware.platform.utilities.common.config
+  "Supports reading configuration from a file, merging environment (eg dev, test, prod) specific values with common configuration.
+```clojure
+{:env test :value 2}
+```"
   (:require [promesa.core :as p]
             [kvlt.core :as kvlt]
             [cljstache.core :as tache]
@@ -78,9 +82,9 @@
    (defn load-config
      "Loads config from the classpath, using the given prefix for env and common files.
 
-      config-path:   path prefix to both env and common file (unless opts specifies paths)
-      opts:          optional {:env-file-name :env-path :common-file-name :common-path :resolve-vars}}
-      Returns as a map between merged env and common config."
+      - config-path:   path prefix to both env and common file (unless opts specifies paths)
+      - opts:          optional ```{:env-file-name :env-path :common-file-name :common-path :resolve-vars}```
+      - Returns: a map between merged env and common config."
      ([config-path] (load-config config-path {}))
 
      ([config-path opts]
@@ -109,7 +113,7 @@
 
 (defn load-http-config
   "Loads config from server, merging the current environment config with the base application configuration.
-   Returns: A promise that resolves to the merged config map"
+   Returns: A promesa promise that resolves to the merged config map"
   ([config-path] (load-http-config config-path {}))
   ([config-path opts]
    (let [{:keys [env-path common-path resolve-vars]} (build-config-options config-path opts)]
