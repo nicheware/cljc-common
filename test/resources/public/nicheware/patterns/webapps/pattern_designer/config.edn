@@ -1,0 +1,17 @@
+{:version "1.2.0"
+ :company {:name "Nicheware Solutions"
+           :dns "nicheware.com.au"
+           :s3-suffix "nicheware-com-au"}
+
+ :application {:name "PatternDesigner"}
+
+ :aws {:region "us-east-1"}
+
+ :cognito {:providers [:google]
+           :google {:client-id "312197562856-8m63j60n1538dgak2c1bfq4d99cdi7u6.apps.googleusercontent.com"}}
+
+ ;; Default table to be used with AppStorage (move to that platform)
+ :dynamodb {:table-name "{{#capitalize}}{{env}}{{/capitalize}}UserState"
+            :capacity {:read 3 :write 1}
+            :attributes [{:name "userId" :type "S" :key-type "HASH"}]}
+ }
