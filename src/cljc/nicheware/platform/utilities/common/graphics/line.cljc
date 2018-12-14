@@ -6,7 +6,7 @@
 
 (defn make-lerp
   "Create a function that
-   calculates the point [x y] that is fraction between the two given points.
+   calculates the co-ordinate [x y, ...] that is fraction between the two given co-ordinates.
    fraction is a float from 0 to 1.0. The resulting point co-ords will be floats"
   [point1 point2]
   (let [difference (map #(- %2 %1) point1 point2)]

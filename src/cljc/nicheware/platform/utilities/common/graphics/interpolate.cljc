@@ -1,4 +1,28 @@
 (ns nicheware.platform.utilities.common.graphics.interpolate
+"
+Functions for performing different interpolations between two points.
+
+  - includes: [[get-options]], [[interpolate]]
+
+Interpolation is down between two n-dimension co-ordinates/points.
+
+It can be used for calculating curves or lines in an n-dimensional spaces
+or filling in a colour spectrum between two colours in a colour model.
+
+The following interpolation types are supported:
+
+  - **:linear**: direct linear interpolation
+  - **:quadratic-bezier**: a quadratic bezier interpolation between to two points and one control point.
+  - **:cubic-bezier**: a cubic bezier interpolation between the two points, using two control points.
+  - **:ease-in**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
+  - **:ease-out**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
+  - **:ease-in-out**: a cubic bezier interpolation, where the two control points are selected using the ease factors and end point.
+  - **:step-up**: computes a fix step up for each dimension.
+  - **:step-down**: computes a fixed step down for each dimension.
+
+ The variable [[interpolation-types]] is a vector of all the valid interpolation keywords.
+
+"
   (:require [nicheware.platform.utilities.common.graphics.line :as line]
             [nicheware.platform.utilities.common.core :as common]))
 
@@ -11,20 +35,32 @@
 ;; ====================================== Functions for dealing with options ================
 
 (defn get-options
-  "Get options for use in interpolation by merging defaults with given options."
+  "Get options for use in interpolation by merging defaults with given options.
+
+   Default options:
+```clojure
+{:type :linear
+ :ease default-ease
+ :control1 start
+ :control2 end
+ :step {:fraction default-step-fraction :ranges end}}
+```
+
+"
   ([options] (get-options options nil nil))
   ([options start end]
    (merge {:type :linear
            :ease default-ease
            :control1 start
            :control2 end
+
            :step {:fraction default-step-fraction
                   :ranges end}}
           options)))
 
 ;; ====================================== Utility function for pre/post processing ===========
 
-(defn select-dimensions
+(defn ^:no-doc select-dimensions
   "Given a set of points in which all dimensions have been interpolated, modify them so that
    only those dimensions selected in the :active-dimensions remain, and the rest default to the start dimension."
   [points start options]
@@ -34,23 +70,34 @@
 
 ;; ====================================== Interpolate multi method ============================
 
-;; Works with the following data
-;;
-;; {:type :linear | :ease-in | :ease-out | :ease-in-out | :cubic-bezier | :quadratic-bezier | :step-up | :step-down
-;;  :control1 [...]  - Control point 1 (eg quadratic-bezier and cubic-bezier)
-;;  :control2 [...]  - Control point 2 (eg cubic-bezier)
-;;  :ease <0 to 0.5> - ratio of easing. Defaults to 0.42
-;;  :step { :fraction <0 to 1>  - What fraction of range for each co-ord to step up or down
-;;          :ranges [x x x x]}  - Range of each dimension incoming points,
-;;                                used to calculate a different step per dimension
-;;  :active-dimensions [true|failse true|false ...] - Indicate which dimension to modify during interpolation
-;;                                                    Any not modified will use the value of the start for that dimension.
-;;}
 
 (defmulti interpolate
   "Performs interpolation between the two given points, create the specified
    number of interleaving points. The type of interpolation is determined by the
-   options argument, of which the :type field will trigger different interpolation."
+   options argument, of which the :type field will trigger different interpolation.
+
+  - start: n-dimension vector marking start of transformation
+  - end: n-dimension vector marking end of transformation
+  - num-points: Number of interleaving points between start and end to return, using the interpolation function defined by options
+  - options: Set of options defining attributes of the interpolation function to be used. See below
+  - returns: vector of n-dimension vector, with each of the num-points entries being along the interpolation space.
+
+  Options is of the form:
+
+```clojure
+ {:type :linear | :ease-in | :ease-out | :ease-in-out | :cubic-bezier | :quadratic-bezier | :step-up | :step-down
+  :control1 [...]  - Control point 1 (eg quadratic-bezier and cubic-bezier)
+  :control2 [...]  - Control point 2 (eg cubic-bezier)
+  :ease <0 to 0.5> - ratio of easing. Defaults to 0.42
+  :step { :fraction <0 to 1>  - What fraction of range for each co-ord to step up or down
+          :ranges [x x x x]}  - Range of each dimension incoming points,
+                                used to calculate a different step per dimension
+  :active-dimensions [true|false  ...] - Indicate which dimension to modify during interpolation
+                                         Any not modified will use the value of the start for that dimension.
+}
+```
+
+  "
   (fn [start end num-points options] (:type options)))
 
 

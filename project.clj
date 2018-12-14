@@ -21,11 +21,12 @@
   :plugins [[lein-codox "0.10.5"]]
 
   :profiles
-  {:codox {:dependencies [[codox-theme-rdash "0.1.2"]]
+  {:codox {:dependencies [[codox-theme-rdash "0.1.2"]
+                          [nicheware/clj-codox-deeptree "0.1.0-SNAPSHOT"]]
            :plugins [[lein-codox "0.10.5"]]
            :codox {:project {:name "cljc-common"}
                    :metadata {:doc/format :markdown}
-                   :themes [:rdash]
+                   :themes [:rdash :deeptree]
                    :source-paths ["src/cljc"]
                    :source-uri "https://github.com/nicheware/cljc-common/blob/master/{filepath}#L{line}"
                    }}

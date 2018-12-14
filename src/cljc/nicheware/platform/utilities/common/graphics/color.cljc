@@ -1,11 +1,46 @@
 (ns nicheware.platform.utilities.common.graphics.color
+"
+Functions for dealing with colors and conversion between different color representations.
+
+There are groups of functions and variables within colors that deal with:
+
+  - argb packed int colors:
+  [[blue-color]], [[black-color]], [[light-grey-color]], [[dark-red-color]], [[transparent-blue-color]],
+  [[dark-blue-color]], [[white-color]], [[dark-green-color]], [[green-color]], [[yellow-color]]
+
+  - css string hex colors: [[ bright-red-color]], [[ css-yellow-color]], [[ css-blue-color]], [[ css-pink-color]], [[ css-white-color]]
+
+  - rgb utility functions: [[normalise-rgb]], [[int-rgb]], [[ratio-rgba-to-int-rgba]], [[nudge-color]] [[unique-color]]
+
+  - rgb format conversion: [[color-as-rgba]], [[color-as-map]] [[rgba-as-css-hex]] [[color-as-css-hex]],  [[react-color-as-rgba]]
+
+  - rgba, hsla color model conversion: [[rgba-to-hsla]], [[hsla-to-rgba]]
+
+  - color model keyword functions: [[model-from-to]], [[model-ranges]]
+
+  - color gradient functions: [[make-color-increment-fn]], [[color-difference-seq]]
+
+The different color representation that are used by functions includes:
+
+  - RGBA: an RGB color with an alpha channel, represented as a vector with 4 values ```[R G B A]```. Each value is an int from 0 to 255
+
+  - RGB or packed RGB: an RGB color with an alpha channel, packed as a Clojure integer, with each byte representing A, R, G, B.
+    The unpacked values are from 0 to 255
+
+  - RGB CSS: String hex representation of an RGB color with no alpha channel, as used in CSS color specifications.
+
+  - HSLA: Hue, Saturation, Lightness, Alpha as a clojure vector ```[H S L A]```.
+    Hue is a degree on the color wheel, 0 to 360,
+    Saturation is a percentage (100 full color),
+    Lightness is percentage of reflecting color (0 is dark, 100 is light),
+    Alpha is 0 to 255.
+
+"
   (:require [thi.ng.strf.core :as f]
             [nicheware.platform.utilities.common.math :as math]
             #?(:clj  [clojure.core.match :refer [match]]
                :cljs [cljs.core.match :refer-macros [match]])
             [nicheware.platform.utilities.common.core :as common]))
-
-(comment (:require [thi.ng.color.core :as col]))
 
 ;; ================================ Constants ===================================
 
@@ -32,6 +67,8 @@
 (def css-pink-color "#E91E63")
 (def css-white-color "#FFFFFF")
 
+,
+
 ;; ================================= Colors ======================================
 
 (defn normalise-rgb
@@ -54,10 +91,10 @@
 ;; Not using - so leave until we decide we do not need.
 (comment
   (defn value-as-rgba
-    "Converts a color value which is either an Int or a vector of [R G B] ints into
+    "Converts a color value which is either an Int or a vector of ```[R G B]``` ints into
    a thi.ng color RGBA for computation.
 
-  When this return results is de-referenced, it will be a vector of [R G B A]
+  When this return results is de-referenced, it will be a vector of ```[R G B A]```
   all in the range 0 to 1"
     [color-value]
     (if (vector? color-value)
@@ -76,8 +113,8 @@
 ;; ================================== RGB Color conversions (form not models) ==================
 
 (defn color-as-rgba
-  "Converts color values to vector of values from 0 to 255 for [R G B A]
-   Accepts a packed int or existing vector of [R G B] or [R G B A]. Assumes alpha 255"
+  "Converts color values to vector of values from 0 to 255 for ```[R G B A]```
+   Accepts a packed int or existing vector of ```[R G B]``` or ```[R G B A]```. Assumes alpha 255"
   [color-value]
   (if (not color-value)
     nil
@@ -95,7 +132,9 @@
 
 
 (defn color-as-map
-  "Converts color values to map of values from 0 to 255 for RGB and 0 to 1 for Alpha to {:r <R> :g <G> :b <B> :a <A> }
+  "Converts color values to map of values from 0 to 255 for RGB and 0 to 1 for Alpha to
+   ```{:r R :g G :b B :a A }```
+
    Accepts a packed int or existing vector of [R G B] or [R G B A]. Assumes alpha 255 on input.
 
    Output suitable for use with react-color pickers"
@@ -107,7 +146,7 @@
      :a (normalise-rgb alpha)}))
 
 (defn rgba-as-css-hex
-  "Transform a color vctore of [R G B A] into a CSS hex string such as #FFFFFF, ignoring
+  "Transform a color vector of ```[R G B A]``` into a CSS hex string such as ```#FFFFFF```, ignoring
    the alpha."
   [[red green blue alpha]]
   (let [css-value (f/format ["#" (f/hex 2) (f/hex 2) (f/hex 2)] red green blue)]
@@ -115,7 +154,7 @@
     css-value))
 
 (defn color-as-css-hex
-  "Converts a color array of [R G B A] all from 0 to 255 or an packed int ARGB,
+  "Converts a color array of ```[R G B A]``` all from 0 to 255 or a packed int ARGB,
    into a CSS hex, which will ignore the alpha"
   [color-value]
 ;;  (println "color-as-css-hex(): color-value: " color-value)
@@ -125,7 +164,7 @@
 
 (defn react-color-as-rgba
   "Converts a react-col color value map. This has a number of forms within, but one is
-  { 'rgb' {'r' 255 'g' 255 'b' 255 'a' 1}}. We convert this to [R G B A], all values 0 to 255"
+  ```{ 'rgb' {'r' 255 'g' 255 'b' 255 'a' 1}}```. We convert this to ```[R G B A]```, all values 0 to 255"
   [{rgb "rgb" :as react-color}]
   (let [{red "r" green "g" blue "b" alpha "a"} rgb]
     [red green blue (int-rgb alpha)]))
@@ -173,8 +212,8 @@
     normal-degrees))
 
 (defn rgba-to-hsla
-  "Converts an RGBA vector [R G B A] all 255, to HSLA vector [H S L A]
-   where H 0 to 360, S and L percentages and A remains unchanged (0 to 255)"
+  "Converts an RGBA vector ```[R G B A]``` all 0 to 255, to HSLA vector ```[H S L A]```
+   where H 0 to 360, and S and L are percentages and A remains unchanged (0 to 255)"
   [[_ _ _ alpha :as rgba]]
   (let [[red green blue :as normalised-rgb] (map normalise-rgb (take 3 rgba))
         c-max (apply max normalised-rgb)
@@ -220,8 +259,8 @@
   (int (Math/round (* 255 (+ m initial-rgb-value)))))
 
 (defn hsla-to-rgba
-  "Converts an HSLA vector [H S L A] where H 0 to 360, S and L percentages
-   to RGBA vector [R G B A] all 255
+  "Converts an HSLA vector ```[H S L A]``` where H 0 to 360, S and L percentages
+   to RGBA vector ```[R G B A]``` all 255
    and A remains unchanged (0 to 255)"
   [[hue saturation lightness alpha]]
   (let [c                (calc-c saturation lightness)
@@ -249,8 +288,9 @@
 
 (defn model-ranges
   "Returns a vector showing the ranges of the values in the color model
-  eg :rgba would give [255 255 255 255]
-     :hsla would give [359 1 1 255]"
+  eg :rgba would give ```[255 255 255 255]```
+     :hsla would give ```[359 1 1 255]```
+"
   [color-model]
   (case color-model
     :rgba [255 255 255 255]
@@ -281,5 +321,5 @@
     (take count (iterate inc-fn (inc-fn end)))))
 
 
-;; (color-as-rgba 4294179323)
+;;(color-as-rgba 4294179323)
 ;;(color-as-rgba 4294043879)
