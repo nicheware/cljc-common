@@ -4,21 +4,21 @@ Functions for performing different interpolations between two points.
 
   - includes: [[get-options]], [[interpolate]]
 
-Interpolation is down between two n-dimension co-ordinates/points.
+Interpolation is done between two n-dimension co-ordinates/points.
 
 It can be used for calculating curves or lines in an n-dimensional spaces
 or filling in a colour spectrum between two colours in a colour model.
 
 The following interpolation types are supported:
 
-  - **:linear**: direct linear interpolation
-  - **:quadratic-bezier**: a quadratic bezier interpolation between to two points and one control point.
-  - **:cubic-bezier**: a cubic bezier interpolation between the two points, using two control points.
-  - **:ease-in**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
-  - **:ease-out**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
-  - **:ease-in-out**: a cubic bezier interpolation, where the two control points are selected using the ease factors and end point.
-  - **:step-up**: computes a fix step up for each dimension.
-  - **:step-down**: computes a fixed step down for each dimension.
+  - **linear**: direct linear interpolation
+  - **quadratic-bezier**: a quadratic bezier interpolation between to two points and one control point.
+  - **cubic-bezier**: a cubic bezier interpolation between the two points, using two control points.
+  - **ease-in**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
+  - **ease-out**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
+  - **ease-in-out**: a cubic bezier interpolation, where the two control points are selected using the ease factors and end point.
+  - **step-up**: computes a fix step up for each dimension.
+  - **step-down**: computes a fixed step down for each dimension.
 
  The variable [[interpolation-types]] is a vector of all the valid interpolation keywords.
 
@@ -72,9 +72,9 @@ The following interpolation types are supported:
 
 
 (defmulti interpolate
-  "Performs interpolation between the two given points, create the specified
+  "Performs interpolation between the two given points, creating the specified
    number of interleaving points. The type of interpolation is determined by the
-   options argument, of which the :type field will trigger different interpolation.
+   options argument, of which the :type field will determine the type of interpolation used.
 
   - start: n-dimension vector marking start of transformation
   - end: n-dimension vector marking end of transformation

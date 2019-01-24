@@ -349,11 +349,11 @@
   (t/testing "Filter remove key"
     (t/is (= map-with-even (sut/filter-remove-key #{:one :three :five} map-with-odd-even)))))
 
-(t/deftest test-transform-keys
+(t/deftest test-map-keys
   (t/testing "Transform keys to snake case"
     (t/is (= { :services-name ["testme"] :custom-name {:*:0 ""}}
-           (sut/transform-keys csk/->kebab-case-keyword { :services_name ["testme"] :custom_name {:*:0 ""}})))
-    (t/is (nil? (sut/transform-keys identity nil)))))
+           (sut/map-keys csk/->kebab-case-keyword { :services_name ["testme"] :custom_name {:*:0 ""}})))
+    (t/is (nil? (sut/map-keys identity nil)))))
 
 (t/deftest test-map-all-keys
   (t/testing "Map all keys to snake case"
@@ -398,6 +398,18 @@
              ((sut/compose-fns []) -1)))
     (t/is (= -1
              ((sut/compose-fns nil) -1)))))
+
+;; ========================== String functions =================================
+
+(t/deftest test-before
+  (t/testing "Can extract valid before string"
+    (t/is (= "expected"
+             (sut/before "expectedbeforeafter" "before"))))
+
+  (t/testing "nil for invalid before string"
+    (t/is (nil?
+             (sut/before "expectedbeforeafter" "beforemissing")))))
+
 
 ;; ============ Scratch ===============
 

@@ -1,5 +1,15 @@
 (ns nicheware.platform.utilities.common.graphics.line
-  (:require [nicheware.platform.utilities.common.core :as common]))
+"
+  Functions for with mathematical straight and curved lines:
+
+There are groups of functions and variables within line that deal with:
+
+  - equations: [[straight-line-equation]], [[bezier-qudaratic-equation]], [[bezier-cubic-equation]]
+
+  - curve and line building functions: [[make-lerp]], [[lerp]], [[make-curve-fn-from-sample]], [[rasterize-bezier-quadratic]], [[interpolate-n-points]]
+
+"
+(:require [nicheware.platform.utilities.common.core :as common]))
 
 
 ;; ========================== Equations ===========================================
@@ -7,7 +17,9 @@
 (defn make-lerp
   "Create a function that
    calculates the co-ordinate [x y, ...] that is fraction between the two given co-ordinates.
-   fraction is a float from 0 to 1.0. The resulting point co-ords will be floats"
+
+  - fraction is a float from 0 to 1.0.
+  - returns: point co-ords will be floats"
   [point1 point2]
   (let [difference (map #(- %2 %1) point1 point2)]
     (fn [fraction]
@@ -15,16 +27,21 @@
 
 (defn lerp
   "Calculates the point [x y ...] that is fraction between the two given points (of any dimension).
-   fraction is a float from 0 to 1.0. The resulting point co-ords will be floats and the same dimension as the incoming points.
 
-  Does vector calculations, not just 2-D points."
+   - fraction is a float from 0 to 1.0.
+   - returns: point co-ords will be floats and the same dimension as the incoming points.
+
+  Does multi-dimension vector calculations, not just 2-D points."
   [point1 point2 fraction]
   (let [difference (map #(- %2 %1) point1 point2)]
     (map #(+ %1 (* %2 fraction)) point1 difference)))
 
 (defn straight-line-equation
-  "Given two points will create a line equation. The equations
-   will taker any X and return the Y corresponding to the point on the line.
+  "Given two points will create a line equation function.
+
+   The equation function
+   will take any X and return the Y corresponding to the point on the line.
+
    The result will be a float"
   [[x1 y1 :as  start] [x2 y2 :as  end]]
   (let [slope (/ (- y2 y1) (- x2 x1))
@@ -32,9 +49,10 @@
     (fn [x] (float (+ constant (* slope x))))))
 
 (defn bezier-quadratic-equation
-  "Creates a function for computing points on a quadratic Bezier curve (3 control points)
+  "Creates a function for computing points on a quadratic Bezier curve (from 3 control points)
+
    The returned function will accept a fraction from 0 to 1 which will return
-   a point on the curve running from start to end, controlled by middle.
+   a point on the curve running from start to end, controlled by the middle.
 
    The middle point is used to calculate a line between the start and end point.
    The fraction then compute a point along each of these lines, which will be the
@@ -48,16 +66,17 @@
         (lerp start-point end-point fraction)))))
 
 (defn bezier-cubic-equation
-  "Creates a function for computing points on a quadratic Bezier curve (5 points)
+  "Creates a function for computing points on a quadratic Bezier curve (from 5 control points)
    The returned function will accept a fraction from 0 to 1 which will return
-   a point on the curve running from start to end, controlled by middle two control points.
+   a point on the curve running from start to end, controlled by the middle two control points.
 
-   Lines are computed between
+   Lines are computed between:
+
    - start -> control1 (L1)
    - control1 -> control2 (L2)
    - control2 -> end (L3)
 
-   t (fraction 0 to 1) will computed points on each line, resulting in T1, T2, T3
+   t (fraction 0 to 1) will compute points on each line, resulting in T1, T2, T3
 
    - these are then used as a bezier-quadratic-equation.
    "
@@ -76,7 +95,8 @@
 (defn make-curve-fn-from-samples
   "Creates a function to return a Y value given an X for points on a curve
   where the curve is represented by the given set of [x y] points
-  Just finds the two points either size of the given X and find point on line.
+
+  Finds the two points either size of the given X and then finds points on line between the known points.
 
   Returns nil if no part of curve."
   [sample-points]
@@ -105,8 +125,11 @@
 
 (defn rasterize-bezier-quadratic
   "Rasterizes the bezier curve defined by the given start, end and middle control point.
-  Will return a value for each int x between the start x and end x. As curve point can extend
-  beyond the start and end point, it allows for an x-start and x-end to be specified
+
+  Will return a value for each int x between the start x and end x.
+
+  As curve points can extend
+  beyond the start and end point, it allows for an optional -start and x-end to be specified
   for the rasterized curve.
 
   These default to the start and end x,"
@@ -129,7 +152,11 @@
 (defn interpolate-n-points
   "Compute the given number of points between start and end.
    This will divide the curve into points + 1 sections, and gives the curve value
-   for n points."
+   for n points.
+
+   - interpolation-fn:   Curve interpolation function which should accept t, as value form 0 to 1
+   - points:             An integer number of points to interpolate evenly using the function.
+ "
   [interpolation-fn points]
   (let [step-size (/ 1 (inc points))
         t-points (map #(* step-size %) (range 1 (inc points)))]

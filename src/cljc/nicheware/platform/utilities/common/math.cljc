@@ -1,24 +1,37 @@
-(ns nicheware.platform.utilities.common.math)
+(ns nicheware.platform.utilities.common.math
+  "
+  Functions complementing those in the Clojure/Clojurescript Math namespace.
+
+There are groups of functions and variables within math that deal with:
+
+  - value manipulations: [[roundn]], [[round]], [[ceil]], [[floor]], [[div]], [[diff]], [[mult]], [[clamp-change]], [[max-abs]]
+
+  - sequence generators: [[make-ratio-sequence-fn]], [[ratio-sequence]]
+
+ Where suitable, uses Math/ functions.
+"  )
 
 ;; ======================== Value manipulations  ================================
 
 
 (defn roundn
+  "Rounds a float to the given precision"
   [precision num]
   (let [factor (Math/pow 10 precision)]
     (/ (Math/round (* num factor)) factor)))
 
 (defn round
+  "Rounds a value, handing floats and ints"
   [value]
   (Math/round (float value)))
 
 (defn ceil
-  "Ceiling call which converts to int to simplify later type checking"
+  "Ceiling call which converts return value to int to simplify later type checking"
   [value]
   (int (Math/ceil value)))
 
 (defn floor
-  "Ceiling call which converts to int to simplify later type checking"
+  "Floor call which converts return value to int to simplify later type checking"
   [value]
   (int (Math/floor value)))
 
@@ -33,7 +46,7 @@
   (Math/abs (- value1 value2)))
 
 (defn mult
-  "Multiple to 4 demical places"
+  "Multiply to 4 demical places"
   [arg1 arg2]
   (roundn 4 (* arg1 arg2)))
 
@@ -47,9 +60,13 @@
 
 (defn max-abs
   "Return whichever value is the biggest absolute value, retaining the sign on the return value.
-  max-abs(-1 -2) => -2
-  max-abs(1 2)   => 2
-  max-abs(1 -2)  => -2"
+
+```clojure
+max-abs(-1 -2) => -2
+max-abs(1 2)   => 2
+max-abs(1 -2)  => -2
+```
+"
   [val1 val2]
   (if (> (Math/abs val1) (Math/abs val2))
     val1
@@ -63,6 +80,7 @@
    generating a sequence where each value is a progressive ratio of the supplied total.
 
    eg ratio = 0.5, total 10, then
+
    -initial point is half of total (0.5)
    -next point is half of remaining distance (7.5)
    -next os half again of remaining (8.75) etc

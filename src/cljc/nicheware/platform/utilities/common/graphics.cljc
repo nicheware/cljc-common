@@ -8,16 +8,16 @@ There are groups of functions within graphics that deal with:
 
   - shapes: eg [[update-fill-colors]], [[translate-shapes]]
 
-In these functions the follow map logical data types are supported:
+In these functions the following logical data types are supported:
 
- dimensions:
+ **dimensions**:
 
 ```clojure
 {:width 100
  :height 20}
 ```
 
- shape:
+ **shape**:
 
 ```clojure
 {:shape :rect

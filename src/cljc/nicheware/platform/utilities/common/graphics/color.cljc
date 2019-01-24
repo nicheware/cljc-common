@@ -4,11 +4,11 @@ Functions for dealing with colors and conversion between different color represe
 
 There are groups of functions and variables within colors that deal with:
 
-  - argb packed int colors:
+  - constants for argb packed int colors :
   [[blue-color]], [[black-color]], [[light-grey-color]], [[dark-red-color]], [[transparent-blue-color]],
   [[dark-blue-color]], [[white-color]], [[dark-green-color]], [[green-color]], [[yellow-color]]
 
-  - css string hex colors: [[ bright-red-color]], [[ css-yellow-color]], [[ css-blue-color]], [[ css-pink-color]], [[ css-white-color]]
+  - constants for css string hex colors: [[ bright-red-color]], [[ css-yellow-color]], [[ css-blue-color]], [[ css-pink-color]], [[ css-white-color]]
 
   - rgb utility functions: [[normalise-rgb]], [[int-rgb]], [[ratio-rgba-to-int-rgba]], [[nudge-color]] [[unique-color]]
 
