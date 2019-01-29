@@ -7,6 +7,11 @@
 
 ;; ================================= Size fitting functions =============================
 
+(t/deftest test-aspect-ratio
+  (t/testing "Test we can determine aspect ratio"
+    (t/is (= 0.5
+             (sut/aspect-ratio {:width 50 :height 100})))))
+
 (t/deftest test-fit-to-height
   (t/testing "Small rect within larger rect, integer scale"
     (t/is (= {:width 20.0 :height 100 :x 40.0 :y 0 :scale 2.0}
@@ -37,7 +42,7 @@
     (t/is (= {:width 10 :height 10.0 :x 0 :y 5.0 :scale 0.2}
              (sut/fit-to-width {:width 10 :height 20} {:width 50 :height 50})))))
 
-(t/deftest test-fit-dimensions
+(t/deftest test-fit-to-dimensions
   (t/testing "Small rect within larger rect, integer scale"
     (t/is (= {:width 100 :height 20.0 :x 0 :y 40.0 :scale 2.0}
              (sut/fit-to-dimensions {:width 100 :height 100} {:width 50 :height 10}))))

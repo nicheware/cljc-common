@@ -171,6 +171,7 @@
   ([config-path opts]
    (let [{:keys [env-path common-path resolve-vars]} (build-config-options config-path opts)]
 
+     (println "load-http-config(), env-path: " env-path " common-path: " common-path)
      ;; Read both config in parallel, waiting until both done
      (-> (p/all [(read-http-config env-path)
                  (read-http-config common-path)])

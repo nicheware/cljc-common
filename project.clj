@@ -30,7 +30,10 @@
                    :source-paths ["src/cljc"]
                    :source-uri "https://github.com/nicheware/cljc-common/blob/master/{filepath}#L{line}"
                    }}
-   :test {:dependencies [[camel-snake-kebab "0.4.0"]]
+   :test {:dependencies [[camel-snake-kebab "0.4.0"]
+                         [ring/ring-core "1.7.1"]
+                         [ring/ring-jetty-adapter "1.7.1"]
+                         ]
           :resource-paths ["env/test/resources" "test/resources"]
           }
    }

@@ -34,6 +34,11 @@
     (t/is (= 1
              (sut/major-version "1.2.3")))))
 
+(t/deftest test-minor-version
+  (t/testing "Test we can get the minor version from a version string"
+    (t/is (= 2
+             (sut/minor-version "1.2.3")))))
+
 (t/deftest test-major-minor-version
   (t/testing "Test we can get the major minor version from a version string with a patch"
     (t/is (= "1.2"
@@ -45,6 +50,22 @@
 
 
 ;; ================================= Interface functions ===============================
+
+(t/deftest test-could-upgrade-version
+  (t/testing "Test where version lower in major"
+    (t/is (sut/could-upgrade-version "1.2.5" "2.0.0")))
+
+  (t/testing "Test where version lower in minor"
+    (t/is (sut/could-upgrade-version "1.2.5" "1.3.0")))
+
+  (t/testing "Test where major and minor the same"
+    (t/is (sut/could-upgrade-version "1.2.5" "1.2.0")))
+
+  (t/testing "Test where cant upgrade in major"
+    (t/is (not  (sut/could-upgrade-version "2.2.5" "1.2.0"))))
+
+  (t/testing "Test where cant upgrade in minor"
+    (t/is (not (sut/could-upgrade-version "2.3.5" "2.2.0")))))
 
 (t/deftest test-migrate-state
   (let [new-state (sut/migrate-state test-state "1.1.4" test-migrations)]

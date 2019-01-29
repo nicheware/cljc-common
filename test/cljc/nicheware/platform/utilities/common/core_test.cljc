@@ -39,7 +39,6 @@
    :four 4
    })
 
-
 ;; ================================= Sequence slice functions ======================
 
 (t/deftest test-compute-start-end-count
@@ -203,6 +202,27 @@
       (t/is (= [1 3 4 5 6 2]
                (sut/insert-before [1 2] 1 [3 4 5 6]))))))
 
+(t/deftest test-insert-after
+  (let [columns [[0 1] [1 2] [2 3] [3 4] [4 5] [5 6]]
+        length (count columns)]
+    (t/testing "Testing insert at end"
+      (t/is (= (concat columns [[2 2]])
+               (sut/insert-after columns (dec length) [[2 2]])))
+      (t/is (= [1 2 3 4 5 6]
+               (sut/insert-after [1 2] 1 [3 4 5 6]))))
+
+    (t/testing "Testing insert at start"
+      (t/is (= (concat [[2 2]] columns)
+               (sut/insert-after columns -1 [[2 2]])))
+      (t/is (= [3 4 5 6 1 2]
+               (sut/insert-after [1 2] -1 [3 4 5 6]))))
+
+    (t/testing "Testing insert in middle"
+      (t/is (= [[0 1] [1 2] [2 2] [2 3] [3 4] [4 5] [5 6]]
+               (sut/insert-after columns 1 [[2 2]])))
+      (t/is (= [1 3 4 5 6 2]
+               (sut/insert-after [1 2] 0 [3 4 5 6]))))))
+
 (defn unittest-replace
   [replace-fn]
   (let [collection [1 2 3 4 5 6]]
@@ -238,6 +258,14 @@
 
 
 ;; ============================= Number functions ==============================
+
+(t/deftest test-range-of-range
+  (t/testing "Test inclusive range"
+    (t/is (= (range 2 5)
+             (sut/range-of-range {:start 2 :end 4}))))
+
+  (t/testing "Test error"
+    (t/is (thrown? NullPointerException (sut/range-of-range {:start 2})))))
 
 (t/deftest test-snap
   (t/testing "Snap negative"
@@ -280,19 +308,106 @@
       (t/is (= col
                (sut/rotate-seq -1 col))))))
 
+(t/deftest test-seq-of
+  (t/testing "Test sequence of int"
+    (t/is (= [2 2 2 2 2 2 2]
+             (sut/seq-of 2 7))))
+
+  (t/testing "Test empty sequence"
+    (t/is (= []
+             (sut/seq-of 2 0)))))
+
+(t/deftest test-pad-with
+  (t/testing "Test padding existing collection"
+    (t/is (= [1 2 3 0 0]
+             (sut/pad-with [1 2 3] 0 5))))
+
+  (t/testing "Test padding empty collection"
+    (t/is (= [0 0 0 0]
+             (sut/pad-with [] 0 4))))
+
+  (t/testing "Test padding not needed"
+    (t/is (= [1 2 3 4]
+             (sut/pad-with [1 2 3 4] 0 4)))))
+
 (t/deftest test-selective-merge
   (t/testing "Merge some values"
     (t/is (= [1 20 3 40 5]
              (sut/selective-merge [1 2 3 4 5] [10 20 30 40 50] [nil true false true false])))))
 
+(t/deftest test-is-empty?
+  (t/testing "Test simple empty vector"
+    (t/is (sut/is-empty? [])))
+
+  (t/testing "Test simple vector with elements"
+    (t/is (not (sut/is-empty? [1 2 3]))))
+
+  (t/testing "Test int, should not be true"
+    (t/is (not (sut/is-empty? 23)))))
+
+((t/deftest test-max-length
+   (t/testing "Test length positive"
+     (let [max-len (sut/max-length 3)]
+       (t/is (max-len ""))
+       (t/is (max-len "12"))
+       (t/is (max-len "123"))
+       (t/is (not (max-len "1234")))))
+
+   (t/testing "Test length 0"
+     (let [max-len (sut/max-length 0)]
+       (t/is (max-len ""))
+       (t/is (not (max-len "1")))
+       (t/is (not (max-len "1234")))))))
+
+((t/deftest test-min-length
+   (t/testing "Test length positive"
+     (let [min-len (sut/min-length 3)]
+       (t/is (min-len "123"))
+       (t/is (min-len "1234"))
+       (t/is (not (min-len "12")))
+       (t/is (not (min-len "1")))
+       (t/is (not (min-len "")))))
+
+   (t/testing "Test length 0"
+     (let [min-len (sut/min-length 0)]
+       (t/is (min-len ""))
+       (t/is (min-len "1"))
+       (t/is (min-len "1234"))))))
+
 ;; =========================== Sequence index functions =================================
 
 (def test-vec [{:id 1 :val "one"} {:id 2 :val "two"} {:id 3 :val "three"}])
+(def test-multiple [{:two 2 :three 3} {:one 1 :two 2} {:one 1 :three 3} {:four 4}])
+
+(t/deftest test-find-first
+  (t/testing "Test finding with multiple in collection"
+    (t/is (= {:one 1 :two 2}
+             (sut/find-first test-multiple :one))))
+
+  (t/testing "Test not finding anything in  collection"
+    (t/is (nil? (sut/find-first test-multiple :five)))))
+
+(t/deftest test-find-last
+  (t/testing "Test finding with multiple in collection"
+    (t/is (= {:one 1 :three 3}
+             (sut/find-last test-multiple :one))))
+
+  (t/testing "Test not finding anything in  collection"
+    (t/is (nil? (sut/find-last test-multiple :five)))))
 
 (t/deftest test-find-index-by-pred
   (t/testing "Test a predicate that just check for a special key value"
     (t/is (= 2
              (sut/find-index-by-pred test-vec #(= (:id %) 3))))))
+
+(t/deftest test-find-indexes-by-pred
+  (t/testing "Find multiple indexes"
+    (t/is (= [1 2]
+             (sut/find-indexes-by-pred test-multiple :one))))
+
+  (t/testing "Find no indexes"
+    (t/is (= []
+             (sut/find-indexes-by-pred test-multiple :five)))))
 
 (t/deftest test-find-index
   (t/testing "Finds the index of an element in a vector using equality"
@@ -303,6 +418,20 @@
     (t/is (= 1
              (sut/find-index test-vec {:id 2 :val "different"} #(= (:id %1) (:id %2)))))))
 
+
+
+(t/deftest test-find-indexes
+  (t/testing "Find multiple indexes"
+    (t/is (= [1 2]
+             (sut/find-indexes test-multiple {:one 1 :six 6} #(= (:one %1) (:one %2))))))
+
+  (t/testing "Find single index, using default compare"
+    (t/is (= [2]
+             (sut/find-indexes test-multiple {:one 1 :three 3}))))
+
+  (t/testing "Find no index"
+    (t/is (= []
+             (sut/find-indexes test-multiple {:one 1 :three 5})))))
 
 (t/deftest test-replace-leading-nils
   (t/testing "Replace with fixed value when have multiple nils and some following values"
@@ -317,6 +446,38 @@
 
 ;; ========================== Utility map functions ============================
 
+(def test-deep-map {:one {:two {:three 3 :four 4}}})
+
+(t/deftest test-map-values
+  (t/testing "Test increment all values"
+    (t/is (= {:one 2 :two 3 :three 4}
+             (sut/map-values inc {:one 1 :two 2 :three 3}))))
+
+  (t/testing "Test empty map"
+    (t/is (= {}
+             (sut/map-values inc {})))))
+
+(t/deftest test-dissoc-in
+  (t/testing "Test deep dissoc"
+    (t/is (= {:one {:two {:four 4}}}
+             (sut/dissoc-in test-deep-map [:one :two :three]))))
+
+  (t/testing "Test single level dissoc"
+    (t/is (= {}
+             (sut/dissoc-in test-deep-map [:one]))))
+
+  (t/testing "Test no dissoc"
+    (t/is (= test-deep-map
+             (sut/dissoc-in test-deep-map [:one :two :ten])))))
+
+
+
+(t/deftest test-assoc-in-thread-last
+  (t/testing "Test working within threading macro"
+    (t/is (= {:one 1 :a {:b {:c "test"}}}
+             (->> {:one 1}
+                  (sut/assoc-in-thread-last [:a :b :c] "test"))))))
+
 (t/deftest test-deep-merge
   (t/testing "Merge a simple no-nested two maps"
     (t/is (= {:one 1 :two 4 :three 3}
@@ -326,6 +487,13 @@
     (t/is (= {:one 1 :two 4 :nested {:three 4 :nested {:four 5 :five 5}}}
              (sut/deep-merge {:one 1 :two 2 :nested {:three 3 :nested {:four 4 :five 5}}}
                              {:two 4 :nested {:three 4 :nested {:four 5}}})))))
+
+
+
+(t/deftest test-index-by
+  (t/testing "Test creating new index"
+    (t/is (= {1 {:id 1 :val "one"}, 2 {:id 2 :val "two"}, 3 {:id 3 :val "three"}}
+             (sut/index-by test-vec :id)))))
 
 
 (t/deftest test-filter-val
@@ -340,6 +508,16 @@
   (t/testing "Multiple nil values"
     (t/is (= map-without-nil (sut/remove-nil map-with-nil)))
     (t/is (= map-without-nil (sut/remove-nil map-without-nil)))))
+
+
+(t/deftest test-remove-empty
+  (t/testing "Remove empty entries from map"
+    (t/is (= {:one 1 :four [1]}
+             (sut/remove-empty {:one 1 :two nil :three [] :four [1]}))))
+
+  (t/testing "No entries to remove"
+    (t/is (= {:one 1 :two [2]}
+             (sut/remove-empty {:one 1 :two [2]})))))
 
 (t/deftest test-filter-key
   (t/testing "Filter key"
@@ -369,6 +547,44 @@
     (t/is (nil? (sut/map-all-keys identity nil)))))
 
 ;; ============================= Vector functions ===================
+
+
+(t/deftest test-vec-remove-nil
+  (t/testing "Remove nil entries from vector"
+    (t/is (= [1 2 3]
+             (sut/vec-remove-nil [nil 1 nil nil 2 3 nil]))))
+
+  (t/testing "No nils to remove"
+    (t/is (= [1 2 34]
+             (sut/vec-remove-nil [1 2 34])))))
+
+
+(t/deftest test-find-by-pred
+  (t/testing "Find using predicate"
+    (t/is (= {:one 1 :two 2}
+             (sut/find-by-pred test-multiple :one))))
+
+  (t/testing "Find nothing predicate"
+    (t/is (nil?
+             (sut/find-by-pred test-multiple :five)))))
+
+(t/deftest test-find-element
+  (t/testing "Find element with predicate"
+    (t/is (= {:id 2 :val "two"}
+             (sut/find-element test-vec :id 2))))
+
+  (t/testing "Dont find element with  predicate"
+    (t/is (nil? (sut/find-element test-vec :id 100)))))
+
+
+(t/deftest test-replace-element-by-pred
+  (t/testing "Test successfully replacing element"
+    (t/is (= [{:id 1 :val "one"} {:id 2 :val "two"} {:id 100 :val 100}]
+             (sut/replace-element-by-pred test-vec {:val 100 :id 100} #(= (:id %) 3)))))
+
+  (t/testing "Test with no match"
+    (t/is (= test-vec
+             (sut/replace-element-by-pred test-vec {:val 100 :id 100} #(= (:id %) 55))))))
 
 (t/deftest test-replace-element
   (let [test-vec [{:value 1 :id 1} {:value 2 :id 2} {:value 3 :id 3}]]
@@ -401,6 +617,15 @@
 
 ;; ========================== String functions =================================
 
+(t/deftest test-after
+  (t/testing "Can extract valid after string"
+    (t/is (= "expected"
+             (sut/after "afterexpected" "after"))))
+
+  (t/testing "nil for invalid after string"
+    (t/is (nil?
+           (sut/after "expectedafterafter" "aftermissing")))))
+
 (t/deftest test-before
   (t/testing "Can extract valid before string"
     (t/is (= "expected"
@@ -408,8 +633,75 @@
 
   (t/testing "nil for invalid before string"
     (t/is (nil?
-             (sut/before "expectedbeforeafter" "beforemissing")))))
+           (sut/before "expectedbeforeafter" "beforemissing")))))
 
+(t/deftest test-before-last
+  (t/testing "Can extract valid string"
+    (t/is (= "part-after-expected-"
+             (sut/before-last "part-after-expected-after" "after"))))
+
+  (t/testing "nil for invalid before-last string"
+    (t/is (nil?
+           (sut/before-last "expectedafterafter" "aftermissing")))))
+
+
+;; =========================== Cross platform utility functions =========================
+
+(t/deftest test-rand-uuid
+  (t/testing "Test not nil"
+    (t/is (not (nil? (sut/rand-uuid)))))
+
+  (t/testing "Test not same in subsequent calls"
+    (t/is (not (= (sut/rand-uuid) (sut/rand-uuid)))))
+
+  (t/testing "Test correct UUID type"
+    (t/is (= (type  (sut/rand-uuid)) java.util.UUID))))
+
+
+(t/deftest test-parse-int
+  (t/testing "Test valid string integer syntax to int"
+    (t/is (= 22
+             (sut/parse-int "22"))))
+
+  (t/testing "Test invalid string integer syntax returns nil"
+    (t/is (nil? (sut/parse-int "22AF")))))
+
+
+(t/deftest test-current-time-millis
+  (t/testing "Test time is increasing"
+    (t/is (<= (sut/current-time-millis) (sut/current-time-millis))))
+
+  (t/testing "Test time is valid int"
+    (t/is (< 0 (sut/current-time-millis)))))
+
+(t/deftest test-edn-read
+  (t/testing "Test read clojure map"
+    (t/is (= {:one 1 :two 2}
+             (sut/edn-read "{:one 1 :two 2}")))))
+
+
+(t/deftest test-cond-t
+  (t/testing "Test that operates as expected in expression, for true"
+    (t/is (= 6
+             (-> 4
+                 (sut/cond-t #(= % 4) inc)
+                 inc))))
+
+  (t/testing "Test that operates as expected in expression, for false"
+    (t/is (= 5
+             (-> 4
+                 (sut/cond-t #(= % 3) inc)
+                 inc)))))
+
+(t/deftest test-throw-illegal-arg
+  (t/testing "Test that throws correct exception"
+    (t/is (thrown? IllegalArgumentException (sut/throw-illegal-arg "Test error"))))
+
+  (t/testing "Test that message correct"
+    (t/is (= "Test error"
+             (try
+               (sut/throw-illegal-arg "Test error")
+               (catch Exception ex (.getMessage ex)))))))
 
 ;; ============ Scratch ===============
 

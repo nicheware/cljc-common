@@ -5,6 +5,17 @@
             [nicheware.platform.utilities.common.math :as math]))
 
 
+(t/deftest test-get-options
+  (let [options (sut/get-options {} 100 200)]
+    (t/testing "Test that start and end are correctly set"
+      (t/is (= 100 (:control1 options)))
+      (t/is (= 200 (:control2 options))))
+    (t/testing "Test :linear is default type"
+      (t/is (= :linear (:type options)))))
+
+  (t/testing "Test can override the default type"
+    (t/is (= :ease-in (:type  (sut/get-options {:type :ease-in}))))))
+
 (t/deftest test-interpolate
   (let [round-fn (fn [point] (map #(math/roundn 2 %) point))]
     (t/testing "Test linear interpolation"

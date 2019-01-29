@@ -4,9 +4,10 @@
 
 There are groups of functions and variables within line that deal with:
 
-  - equations: [[straight-line-equation]], [[bezier-qudaratic-equation]], [[bezier-cubic-equation]]
-
-  - curve and line building functions: [[make-lerp]], [[lerp]], [[make-curve-fn-from-sample]], [[rasterize-bezier-quadratic]], [[interpolate-n-points]]
+|Function group|Functions|
+|---|---|
+|equations| [[straight-line-equation]], [[bezier-qudaratic-equation]], [[bezier-cubic-equation]]|
+|curve and line building functions| [[make-lerp]], [[lerp]], [[make-curve-fn-from-sample]], [[rasterize-bezier-quadratic]], [[interpolate-n-points]]|
 
 "
 (:require [nicheware.platform.utilities.common.core :as common]))
@@ -19,7 +20,8 @@ There are groups of functions and variables within line that deal with:
    calculates the co-ordinate [x y, ...] that is fraction between the two given co-ordinates.
 
   - fraction is a float from 0 to 1.0.
-  - returns: point co-ords will be floats"
+  - returns: point co-ords will be floats
+"
   [point1 point2]
   (let [difference (map #(- %2 %1) point1 point2)]
     (fn [fraction]
@@ -28,10 +30,15 @@ There are groups of functions and variables within line that deal with:
 (defn lerp
   "Calculates the point [x y ...] that is fraction between the two given points (of any dimension).
 
-   - fraction is a float from 0 to 1.0.
-   - returns: point co-ords will be floats and the same dimension as the incoming points.
+   Does multi-dimension vector calculations, not just 2-D points.
 
-  Does multi-dimension vector calculations, not just 2-D points."
+   - point1: N-dimensional point.
+   - point2: N-dimensional point.
+   - fraction is a float from 0 to 1.0.
+   - returns: point that ios specified fraciont between point1 and point2.  Co-ords will be floats and the same dimension as the incoming points.
+
+
+"
   [point1 point2 fraction]
   (let [difference (map #(- %2 %1) point1 point2)]
     (map #(+ %1 (* %2 fraction)) point1 difference)))
@@ -39,10 +46,11 @@ There are groups of functions and variables within line that deal with:
 (defn straight-line-equation
   "Given two points will create a line equation function.
 
-   The equation function
-   will take any X and return the Y corresponding to the point on the line.
-
-   The result will be a float"
+   - start: Vector of start point on the line.  ```[x y]```
+   - end: Vector of end point on the line.  ```[x y]```
+   - returns: function that calculates points on the line. The function will take any X and return the Y corresponding to the point on the line.
+     The Y result will be a float
+"
   [[x1 y1 :as  start] [x2 y2 :as  end]]
   (let [slope (/ (- y2 y1) (- x2 x1))
         constant (- y2 (* slope x2))]
@@ -55,8 +63,14 @@ There are groups of functions and variables within line that deal with:
    a point on the curve running from start to end, controlled by the middle.
 
    The middle point is used to calculate a line between the start and end point.
-   The fraction then compute a point along each of these lines, which will be the
-   tangent to the point on the curve. The point is the fraction of this resulting line."
+   The fraction then computes a point along each of these lines, which will be the
+   tangent to the point on the curve. The point is the fraction of this resulting line.
+
+   - start: Start control point. N-dimensional.
+   - middle: Middle control point. N-dimensional.
+   - end: End control point. N-dimensional.
+   - returns: function which takes a single argument from 0 to 1. Returns a N-dimensional point on the curve.
+"
   [start middle end]
   (let [start-lerp-fn (make-lerp start middle)
         end-lerp-fn (make-lerp middle end)]
@@ -78,7 +92,14 @@ There are groups of functions and variables within line that deal with:
 
    t (fraction 0 to 1) will compute points on each line, resulting in T1, T2, T3
 
-   - these are then used as a bezier-quadratic-equation.
+   These are then used as a bezier-quadratic-equation.
+
+   - start: Start control point. N-dimensional.
+   - control1: Middle control point 1. N-dimensional.
+   - control2: Middle control point 2. N-dimensional.
+   - end: End control point. N-dimensional.
+   - returns: function which takes a single argument from 0 to 1. Returns a N-dimensional point on the curve.
+
    "
   [start control1 control2 end]
   (let [start-lerp-fn (make-lerp start control1)
@@ -98,7 +119,10 @@ There are groups of functions and variables within line that deal with:
 
   Finds the two points either size of the given X and then finds points on line between the known points.
 
-  Returns nil if no part of curve."
+  - sample-points: Collection of points (each point is vector ```[x y]```) which are all on a curve.
+  - returns: function that takes single X argument and returns the correponding Y point on the curve defined by the sample-points.
+    Function Returns nil if given X is outside the min and max X of the sample points.
+"
   [sample-points]
   (fn [x]
     (let [first-x (first (first sample-points))
@@ -124,15 +148,22 @@ There are groups of functions and variables within line that deal with:
               (line-fn x))))))))
 
 (defn rasterize-bezier-quadratic
-  "Rasterizes the bezier curve defined by the given start, end and middle control point.
+  "Rasterizes the bezier curve defined by the given start, end and middle control points.
 
   Will return a value for each int x between the start x and end x.
 
-  As curve points can extend
-  beyond the start and end point, it allows for an optional -start and x-end to be specified
-  for the rasterized curve.
+  As curve points can extend beyond the start and end point, it allows for an optional x-start and x-end to be specified for the rasterized curve, to generate a wider range of points.
 
-  These default to the start and end x,"
+  These default to the start and end x.
+
+  - start: Start point defining bezier curve. ```[x y]```
+  - end: End point defining bezier curve. ```[x y]```
+  - middle: Middle control point defining bezier curve. ```[x y]```
+  - x-start: Optional starting X for generated points. Defaults to x of start.
+  - x-end: Optional ending X for generated points. Defaults to x of end.
+  - returns: lazy sequence of points, one for each x from x-start to x-end. ```[x y]```
+
+"
 
   ([[x1 y1 :as start] [x2 y2 :as end]  middle]
    (rasterize-bezier-quadratic start end middle x1 x2))

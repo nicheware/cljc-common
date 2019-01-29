@@ -4,49 +4,27 @@ This namespace contains functions that complement those in clojure.core, operati
 
 There are groups of functions within common.core that deal with:
 
-- slicing collections: eg [[slice]], [[slice-wrap]], [[remove-slice]], [[remove-slice-wrap]], [[filter-count]]
+|Function group|Functions|
+|---|---|
+|slicing collections| [[slice]], [[slice-wrap]], [[remove-slice]], [[remove-slice-wrap]], [[filter-count]]|
+|collection inserts| [[insert-before]], [[insert-after]], [[replace-at]]|
+|integer functions| [[range-of-range]], [[negate]], [[snap]]|
+|general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
+|collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
+|map functions| [[map-values]], [[deep-merge]], [[dissoc-in]], [[index-by]], [[map-keys]], [[map-all-keys]]|
+|map filtering| [[filer-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
+|vector functions| [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]|
+|string functions| [[after]], [[before]], [[before-last]], [[str-to-int]]|
+|cross-platform functions| [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]|
+|function composition| [[compose-fns]]|
+|exceptions| [[throw-illegal-arg]]|
+|threading macros| [[cond-t]]|
 
-- collection inserts: eg [[insert-before]], [[insert-after]], [[replace-at]]
-
-- integer functions: eg [[range-of-range]], [[negate]], [[snap]]
-
-- general sequence functions: eg [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]
-
-- collection searching: eg [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]
-
-- map functions: eg [[map-values]], [[deep-merge]], [[dissoc-in]], [[index-by]], [[map-keys]], [[map-all-keys]]
-
-- map filtering: eg [[filer-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]
-
-- vector functions: eg [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]
-
-- string functions: eg [[before]], [[before-last]], [[str-to-int]]
-
-- cross-platform functions: [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]
-
-- function composition: eg [[compose-fns]]
-
-- exceptions: [[throw-illegal-arg]]
-
-- threading macros: [[cond-t]]
 "
   (:require [clojure.string :as str]
             [plumbing.core :as pc]
             #?(:clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
-
-;; ==================== Type conversion functions ==================
-
-(defn str-to-int
-  "Returns the given string value as an integer, using the platform specific parseInt.
-   Returns nil if any format errors.
-
-  - string-value: Value to be converted to an integer
-  - returns: Integer value of string, or nil on format errors."
-  [string-value]
-  (try
-    (. Integer parseInt string-value)
-    (catch NumberFormatException _ nil)))
 
 ;; ================================= Sequence slice functions ======================
 
@@ -461,7 +439,7 @@ eg:
 
   - coll: Collection to be searched.
   - pred: Predicate function accepting a value from coll, returning true if matches required condition.
-  - returns: First element from coll that matches the predicate.
+  - returns: First element from coll that matches the predicate. nil if nothing found.
 
 "
   [coll pred]
@@ -705,7 +683,7 @@ eg:
    key as the function. (from juxt doc examples)
 
    - coll: Collection of maps.
-   - key-fn: Fn used to select and element from each map in the collection.
+   - key-fn: Fn used to select an element from each map in the collection. eg Could be just a key.
    - returns: New map with an entry for each element in coll, where the key is the key of the attribute selected by key-fn and the value is the original map.
 
 eg:
@@ -851,6 +829,7 @@ eg:
   - pred: function which accepts a single value (an element from the collection) and returning true for the required element.
   - returns: The first element from the collection that matches the predicate.
     Maps will be tested and returned as vector elements of the form [key value]
+    nil if nothing found.
 
 "
   [coll pred]
@@ -864,7 +843,7 @@ eg:
    - coll: Collection of maps to be searched.
    - id-key: Key to access in each map of the collection.
    - id: Expected value of the key in map of matching element.
-   - returns: Map from coll that has id-key with value of id.
+   - returns: Map from coll that has id-key with value of id. nil if not found.
 
 eg:
 
@@ -933,6 +912,25 @@ eg:
 
 ;; ================================== String functions ==================================
 
+
+(defn after
+  "Returns the substring after the first occurrence of the given substring.
+
+  - strn: String to be examined.
+  - after-value: Substring within strn to search for.
+  - returns: substring after 'after-value' or nil if not found.
+
+  eg:
+```clojure
+  (after \"prefix-end-suffix\" \"-end-\")  =>  \"suffix\"
+```
+"
+  [strn after-value]
+  (some->> after-value
+           (str/index-of strn)
+           (+ (count after-value))
+           (subs strn)))
+
 (defn before
   "Returns the substring before the first occurrence of the given substring.
 
@@ -1000,6 +998,17 @@ eg:
              (if (js/isNan result)
                nil
                result))))
+
+(defn str-to-int
+  "Returns the given string value as an integer, using the platform specific parseInt.
+   Returns nil if any format errors.
+
+   Alternate name for [[parse-int]].
+
+  - string-value: Value to be converted to an integer
+  - returns: Integer value of string, or nil on format errors."
+  [string-value]
+  (parse-int string-value))
 
 (defn current-time-millis
   "Returns the current time in millis, as appropriate for the platform."

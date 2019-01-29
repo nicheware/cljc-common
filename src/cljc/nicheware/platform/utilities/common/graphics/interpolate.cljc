@@ -2,7 +2,9 @@
 "
 Functions for performing different interpolations between two points.
 
-  - includes: [[get-options]], [[interpolate]]
+|Function group|Functions|
+|---|---|
+|interpolation|[[get-options]], [[interpolate]]|
 
 Interpolation is done between two n-dimension co-ordinates/points.
 
@@ -11,14 +13,16 @@ or filling in a colour spectrum between two colours in a colour model.
 
 The following interpolation types are supported:
 
-  - **linear**: direct linear interpolation
-  - **quadratic-bezier**: a quadratic bezier interpolation between to two points and one control point.
-  - **cubic-bezier**: a cubic bezier interpolation between the two points, using two control points.
-  - **ease-in**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
-  - **ease-out**: a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.
-  - **ease-in-out**: a cubic bezier interpolation, where the two control points are selected using the ease factors and end point.
-  - **step-up**: computes a fix step up for each dimension.
-  - **step-down**: computes a fixed step down for each dimension.
+|Type|Description|
+|---|---|
+|**linear**| direct linear interpolation|
+|**quadratic-bezier**| a quadratic bezier interpolation between to two points and one control point.|
+|**cubic-bezier**| a cubic bezier interpolation between the two points, using two control points.|
+|**ease-in**| a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.|
+|**ease-out**| a quadratic bezier interpolation, where the control point is selected using the ease factor and end point.|
+|**ease-in-out**| a cubic bezier interpolation, where the two control points are selected using the ease factors and end point.|
+|**step-up**| computes a fix step up for each dimension.|
+|**step-down**| computes a fixed step down for each dimension.|
 
  The variable [[interpolation-types]] is a vector of all the valid interpolation keywords.
 
@@ -36,6 +40,11 @@ The following interpolation types are supported:
 
 (defn get-options
   "Get options for use in interpolation by merging defaults with given options.
+
+   - options: User provided options which will override (merge with) the default options.
+   - start: 3 arity optional argument. Start control point for interpolation. vector of co-ordindates.
+   - end: 3 arity optional argument. End control point for interpolation. vector of co-ordindates.
+   - returns: map of options used for interpolation.
 
    Default options:
 ```clojure
