@@ -51,7 +51,8 @@
 
   ```version-number``` is normally just the modified time.
   "
-  (:require [nicheware.platform.utilities.common.core :as common]))
+  (:require [nicheware.platform.utilities.common.core :as common
+             :include-macros true]))
 
 
 ;; ================================= Version reference functions ==============================
@@ -120,7 +121,7 @@
 
    "
   [versioned-asset {:keys [modified-time] :as element}]
-  (println "find-index(): modified-time: " modified-time)
+  ;;(println "find-index(): modified-time: " modified-time)
   (-> versioned-asset
       get-ordered-versions
       (common/find-index-by-pred #(= (:modified-time %) modified-time))))
@@ -224,7 +225,7 @@
 "
   ([element] (timestamp-element element false))
   ([element force]
-   (println "timestamp-element(): element: " element)
+   ;;(println "timestamp-element(): element: " element)
    (if (or force (:modified-time element))
      element
      (assoc element :modified-time (common/current-time-millis)))))
@@ -252,7 +253,8 @@
   [versioned-asset element]
   ;;(println "add-version(): element: " element)
   (let [{:keys [modified-time] :as  versioned-element} (version-element element)
-        dummy (println "add-version(): modified-time: " modified-time)]
+        ;;dummy (println "add-version(): modified-time: " modified-time)
+        ]
     (-> (if (get-in versioned-asset [:versions modified-time])
           versioned-asset
           (assoc-in versioned-asset [:versions modified-time] versioned-element))

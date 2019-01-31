@@ -38,7 +38,7 @@
 
 (t/deftest test-div
   (t/testing "Test float value returned"
-    (t/is (= Double
+    (t/is (= #?(:clj Double :cljs js/Number)
              (type (sut/div 4 3)))))
 
   (t/testing "Test float value correct"

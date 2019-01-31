@@ -358,7 +358,7 @@ The different color representations that are used by functions include:
 
 "
   [start-color end-color]
-  (println "make-color-increment-fn(): start-color: " start-color " end-color: " end-color)
+  ;;(println "make-color-increment-fn(): start-color: " start-color " end-color: " end-color)
   (let [start (color-as-rgba start-color)
         end (color-as-rgba end-color)
         difference (map #(- %2 %1) start end)]

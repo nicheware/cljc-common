@@ -147,7 +147,7 @@ where:
 "
   [containing-dimensions dimensions-to-fit]
   (if (< (aspect-ratio containing-dimensions) (aspect-ratio dimensions-to-fit))
-    ;; Must fit to width
+    ;; Must fit to  width
     (fit-to-width containing-dimensions dimensions-to-fit)
     (fit-to-height containing-dimensions dimensions-to-fit)))
 

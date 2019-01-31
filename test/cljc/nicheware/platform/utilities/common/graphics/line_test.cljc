@@ -10,25 +10,25 @@
 (t/deftest test-straight-line-equation
   (t/testing "Test simple one used in curve"
     (let [line-fn (sut/straight-line-equation [1 1] [10 4])]
-      (t/is (= 1.0 (line-fn 1)))
-      (t/is (= 4.0 (line-fn 10)))
+      (t/is (= 1.0 (math/roundn 3 (line-fn 1))))
+      (t/is (= 4.0 (math/roundn 3 (line-fn 10))))
       (t/is (= 2.333 (math/roundn 3 (line-fn 5))))
-      (t/is (= 4 (Math/round (line-fn 9)))))))
+      (t/is (= 4.0 (math/roundn 0 (line-fn 9)))))))
 
 (defn unittest-lerp
   "Utility function to allow testing of any lerp function. Means we can test make-lerp and lerp "
   [lerp-fn [x1 y1 :as start] [x2 y2 :as end]]
-  (println "Lerp: " (lerp-fn 0.0))
+  ;;;(println "Lerp: " (lerp-fn 0.0))
   (t/testing "Test start of line"
     (t/is (= [(float x1) (float y1)]
              (lerp-fn 0.0))))
 
-  (println "Lerp: " (lerp-fn 1.0))
+  ;;(println "Lerp: " (lerp-fn 1.0))
   (t/testing "Test end of line"
     (t/is (= [(float x2) (float y2)]
              (lerp-fn 1.0))))
 
-  (println "Lerp: " (lerp-fn 0.5))
+  ;;(println "Lerp: " (lerp-fn 0.5))
   (t/testing "Test middle of line"
     (t/is (= [(float (/ (- x2 x1) 2)) (float (/ (- y2 y1) 2))]
              (lerp-fn 0.5)))))

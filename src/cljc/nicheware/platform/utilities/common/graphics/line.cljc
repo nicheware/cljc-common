@@ -191,5 +191,5 @@ There are groups of functions and variables within line that deal with:
   [interpolation-fn points]
   (let [step-size (/ 1 (inc points))
         t-points (map #(* step-size %) (range 1 (inc points)))]
-    (println "interpolate-n-points(): step-size: " step-size " t-points: " t-points)
+    ;;(println "interpolate-n-points(): step-size: " step-size " t-points: " t-points)
     (map interpolation-fn t-points)))

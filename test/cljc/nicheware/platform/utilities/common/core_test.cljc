@@ -2,7 +2,8 @@
   (:require [nicheware.platform.utilities.common.core :as sut]
             [camel-snake-kebab.core :as csk]
             #?(:clj [clojure.test :as t]
-               :cljs [cljs.test :as t :include-macros true])))
+               :cljs [cljs.test :as t :include-macros true])
+            [nicheware.platform.utilities.common.core :as common]))
 
 ;; ================================== Sample data ==================================
 
@@ -265,7 +266,7 @@
              (sut/range-of-range {:start 2 :end 4}))))
 
   (t/testing "Test error"
-    (t/is (thrown? NullPointerException (sut/range-of-range {:start 2})))))
+    (t/is (= [] (sut/range-of-range {:start 2})))))
 
 (t/deftest test-snap
   (t/testing "Snap negative"
@@ -654,8 +655,11 @@
   (t/testing "Test not same in subsequent calls"
     (t/is (not (= (sut/rand-uuid) (sut/rand-uuid)))))
 
+
   (t/testing "Test correct UUID type"
-    (t/is (= (type  (sut/rand-uuid)) java.util.UUID))))
+    (t/is (= (type (sut/rand-uuid))
+             #?(:clj  java.util.UUID
+                :cljs UUID)))))
 
 
 (t/deftest test-parse-int
@@ -695,13 +699,17 @@
 
 (t/deftest test-throw-illegal-arg
   (t/testing "Test that throws correct exception"
-    (t/is (thrown? IllegalArgumentException (sut/throw-illegal-arg "Test error"))))
+    (t/is #?(:clj
+             (thrown? IllegalArgumentException (sut/throw-illegal-arg "Test error"))
+             :cljs
+             (thrown? js/Error (sut/throw-illegal-arg "Test error")))))
 
   (t/testing "Test that message correct"
     (t/is (= "Test error"
              (try
                (sut/throw-illegal-arg "Test error")
-               (catch Exception ex (.getMessage ex)))))))
+               #?(:clj (catch Exception ex (.getMessage ex))
+                  :cljs (catch js/Error ex (common/after (ex-message ex) "IllegalArgumentException: "))))))))
 
 ;; ============ Scratch ===============
 

@@ -119,7 +119,7 @@ migrations:
 
   (loop [current version
          state incoming-state]
-    (println "migrate-state(): current: " current " state.version: " (:version state) " target: " target-version)
+    ;;(println "migrate-state(): current: " current " state.version: " (:version state) " target: " target-version)
     (if-let [migration (get migrations (major-minor-version current))]
 
       ;; Migration exists from current state, migrate if resulting state compatible with target

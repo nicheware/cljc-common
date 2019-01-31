@@ -2,6 +2,9 @@
 /target
 /classes
 /checkouts
+/node_modules
+/resources/public/js
+package-lock.json
 pom.xml
 pom.xml.asc
 *.jar

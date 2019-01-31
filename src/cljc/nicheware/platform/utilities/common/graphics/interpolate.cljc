@@ -113,7 +113,7 @@ The following interpolation types are supported:
 ;; Linear interpolation. Uses only :type from the options
 (defmethod interpolate :linear
   [start end num-points options]
-  (println "interpolate(:linear): num-points: " num-points)
+  ;;(println "interpolate(:linear): num-points: " num-points)
   (-> (line/make-lerp start end)
       (line/interpolate-n-points num-points)
       (select-dimensions start options)))
@@ -176,7 +176,7 @@ The following interpolation types are supported:
         step-fraction (or fraction default-step-fraction)
         steps (map #(* step-fraction %) ranges)
         step-fn (fn [point] (map #(min (+ %1 %2) %3) point steps ranges))]
-    (println "iterpolate:step-up(): step-fraction: " step-fraction " steps: " steps)
+    ;;(println "iterpolate:step-up(): step-fraction: " step-fraction " steps: " steps)
 (-> (take (inc num-points) (iterate step-fn (step-fn start)))
         (select-dimensions start options))))
 
@@ -189,6 +189,6 @@ The following interpolation types are supported:
         step-fraction (or fraction default-step-fraction)
         steps (map #(* step-fraction %) ranges)
         step-fn (fn [point] (map #(max (- %1 %2) 0) point steps))]
-    (println "interpolate(:step-down): full-options: " full-options " steps: " steps " step-fn([0 0]): " (step-fn [0 0]))
+    ;;(println "interpolate(:step-down): full-options: " full-options " steps: " steps " step-fn([0 0]): " (step-fn [0 0]))
     (-> (take (inc num-points) (iterate step-fn (step-fn start)))
         (select-dimensions start options))))

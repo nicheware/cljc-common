@@ -153,7 +153,8 @@
 
 (t/deftest test-model-from-to
   (t/testing "invalid conversion"
-    (t/is (thrown? IllegalArgumentException
+    (t/is (thrown? #?(:clj IllegalArgumentException
+                      :cljs js/Error)
              (sut/model-from-to :rgba :unknown [78 89 210 255] ))))
 
   (t/testing "rgba to hsla (navy blue)"

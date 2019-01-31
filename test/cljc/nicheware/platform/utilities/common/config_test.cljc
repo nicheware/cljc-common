@@ -1,37 +1,40 @@
 (ns nicheware.platform.utilities.common.config-test
   (:require [nicheware.platform.utilities.common.config :as sut]
             [clojure.data :as data]
-            [ring.middleware.file :as ring-file]
-            [ring.util.response :as ring-response]
-            [ring.adapter.jetty :as ring-jetty]
+            #?(:clj [ring.middleware.file :as ring-file])
+            #?(:clj [ring.util.response :as ring-response])
+            #?(:clj [ring.adapter.jetty :as ring-jetty])
             [promesa.core :as p]
             #?(:clj [clojure.test :as t]
-               :cljs [cljs.test :as t :include-macros true])
-            [promesa.core :as p]))
+               :cljs [cljs.test :as t :include-macros true])))
 
 ;; ============================= Fixtures run before and after namespace tests =================
 
-(defn not-found-handler
-  [request]
-  (ring-response/not-found "Not found"))
+#?(:clj
+   (defn not-found-handler
+     [request]
+     (ring-response/not-found "Not found")))
 
-(def ring-app
-  (-> not-found-handler
-      (ring-file/wrap-file "./test/resources/public/nicheware/patterns/webapps/pattern_designer")
-      (ring-file/wrap-file "./env/test/resources/public/nicheware/patterns/webapps/pattern_designer")))
+#?(:clj
+   (def ring-app
+     (-> not-found-handler
+         (ring-file/wrap-file "./test/resources/public/nicheware/patterns/webapps/pattern_designer")
+         (ring-file/wrap-file "./env/test/resources/public/nicheware/patterns/webapps/pattern_designer"))))
 
-(defn http-server-fixture
-  [test-fn]
-  (println "Before test")
-  (let [server (ring-jetty/run-jetty
-                #'ring-app
-                {:port 9991 :join? false})]
-    (try
-      (test-fn)
-      (finally (.stop server))))
-  (println "After test"))
+#?(:clj
+   (defn http-server-fixture
+     [test-fn]
+     (println "Before test")
+     (let [server (ring-jetty/run-jetty
+                   #'ring-app
+                   {:port 9991 :join? false})]
+       (try
+         (test-fn)
+         (finally (.stop server))))
+     (println "After test")))
 
-(t/use-fixtures :once http-server-fixture)
+#?(:clj
+   (t/use-fixtures :once http-server-fixture))
 
 ;; ========================== Helper methods =====================================
 
@@ -132,25 +135,26 @@
                :attributes [{:name "userId", :type "S", :key-type "HASH"}]}}
              @(sut/read-http-config "http://localhost:9991/config.edn")))))
 
-(t/deftest test-load-http-config
-  (t/testing "Test loading config.edn and env-config.edn over http and merging."
-    (t/is (= {:version "1.2.0",
-              :company
-              {:name "Nicheware Solutions",
-               :dns "nicheware.com.au",
-               :s3-suffix "nicheware-com-au"},
-              :application {:name "PatternDesigner"},
-              :aws {:region "us-east-1"},
-              :cognito
-              {:providers [:google],
-               :google
-               {:client-id
-                "312197562856-8m63j60n1538dgak2c1bfq4d99cdi7u6.apps.googleusercontent.com"},
-               :identity-pool-id
-               "us-east-1:6f4c0aec-2488-4697-af3b-d11564da7763"},
-              :dynamodb
-              {:table-name "TestUserState",
-               :capacity {:read 3, :write 1},
-               :attributes [{:name "userId", :type "S", :key-type "HASH"}]},
-              :env "test"}
-             @(sut/load-http-config "http://localhost:9991")))))
+#?(:clj
+   (t/deftest test-load-http-config
+     (t/testing "Test loading config.edn and env-config.edn over http and merging."
+       (t/is (= {:version "1.2.0",
+                 :company
+                 {:name "Nicheware Solutions",
+                  :dns "nicheware.com.au",
+                  :s3-suffix "nicheware-com-au"},
+                 :application {:name "PatternDesigner"},
+                 :aws {:region "us-east-1"},
+                 :cognito
+                 {:providers [:google],
+                  :google
+                  {:client-id
+                   "312197562856-8m63j60n1538dgak2c1bfq4d99cdi7u6.apps.googleusercontent.com"},
+                  :identity-pool-id
+                  "us-east-1:6f4c0aec-2488-4697-af3b-d11564da7763"},
+                 :dynamodb
+                 {:table-name "TestUserState",
+                  :capacity {:read 3, :write 1},
+                  :attributes [{:name "userId", :type "S", :key-type "HASH"}]},
+                 :env "test"}
+                @(sut/load-http-config "http://localhost:9991"))))))

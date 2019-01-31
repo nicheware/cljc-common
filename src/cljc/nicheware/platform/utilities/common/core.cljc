@@ -11,8 +11,9 @@ There are groups of functions within common.core that deal with:
 |integer functions| [[range-of-range]], [[negate]], [[snap]]|
 |general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
 |collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
-|map functions| [[map-values]], [[deep-merge]], [[dissoc-in]], [[index-by]], [[map-keys]], [[map-all-keys]]|
-|map filtering| [[filer-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
+|map utility|  [[deep-merge]], [[dissoc-in]], [[index-by]]|
+|map transform| [[map-values]], [[map-keys]], [[map-all-keys]]|
+|map filtering| [[filter-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
 |vector functions| [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]|
 |string functions| [[after]], [[before]], [[before-last]], [[str-to-int]]|
 |cross-platform functions| [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]|
@@ -22,7 +23,6 @@ There are groups of functions within common.core that deal with:
 
 "
   (:require [clojure.string :as str]
-            [plumbing.core :as pc]
             #?(:clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
 
@@ -301,10 +301,12 @@ eg
   where the values are inclusive (unlike Clojure range which is exclusive of the end)
 
   - range-spec: ```{:start <range-start-inclusive> :end <range-end-inclusive}```
-  - returns: lazy sequence from start to end inclusive.
+  - returns: lazy sequence from start to end inclusive. Empty if either start or end missing.
 "
-  [range-spec]
-  (range (:start range-spec) (inc (:end range-spec))))
+  [{:keys [start end] :as range-spec}]
+  (if (not (or  (nil? start) (nil? end)))
+    (range start (inc end))
+    []))
 
 (defn negate
   "Negate the number (int or real)
@@ -610,19 +612,6 @@ eg:
 
 ;; ========================== Utility map functions ============================
 
-(defn map-values
-  "Peforms a map over the values of the hash-map, returning a new hashmap with same keys and updated values.
-
-   - map-fn: Function to be applied to all values in the hash-map. Should accept a single argument (value) and return new value.
-   - hmap: The hash-map to be traversed
-   - returns: New hash map with all values modified by the map-fn.
-
-"
-  [map-fn hmap]
-  (reduce-kv (fn [modified-map k value]
-               (assoc modified-map k (map-fn value)))
-             {} hmap))
-
 (defn dissoc-in
   "Performs a dissoc of the nested key. It only removes the last key in the path of keys.
 
@@ -693,6 +682,55 @@ eg:
 "
   [coll key-fn]
   (into {} (map (juxt key-fn identity) coll)))
+
+;; ==================== Map transform functions ===================
+
+(defn map-keys
+  "Transforms the top-level keys in the map using the given function.
+  Uses for-map. (14.564 usec).
+
+  - fn: Function used to transform the keys. Takes a single argument, the existing key, returning a new key value.
+  - value-map: Map to be transformed.
+  - returns: New map, with all top-level keys in value-map transformed by fn.
+    Handles nil value-map, returning nil
+"
+  [map-fn value-map]
+  (if (empty? value-map)
+    value-map
+    (reduce-kv (fn [modified-map k value]
+                 (assoc modified-map (map-fn k) value))
+               {} value-map)))
+
+(defn map-all-keys
+  "Transforms the keys in the map and nested maps using the given function.
+
+  - fn: Function used to transform the keys. Takes a single argument, the existing key,  returning a new key value.
+  - value-map: Map to be transformed.
+  - returns: New map, with all keys, including keys in nested maps, transformed by fn.
+    Handles nil value-map, returning nil
+"
+  [map-fn value-map]
+  (if (empty? value-map)
+    value-map
+    (reduce-kv (fn [modified-map k value]
+                 (assoc modified-map (map-fn k)
+                        (if (map? value)
+                          (map-all-keys map-fn value)
+                          value)))
+               {} value-map)))
+
+(defn map-values
+  "Peforms a map over the values of the hash-map, returning a new hashmap with same keys and updated values.
+
+   - map-fn: Function to be applied to all values in the hash-map. Should accept a single argument (value) and return new value.
+   - hmap: The hash-map to be traversed
+   - returns: New hash map with all values modified by the map-fn.
+
+"
+  [map-fn hmap]
+  (reduce-kv (fn [modified-map k value]
+               (assoc modified-map k (map-fn value)))
+             {} hmap))
 
 ;; ==================== Map filtering functions ====================
 
@@ -775,37 +813,6 @@ eg:
   [value-map]
   (remove-nil value-map))
 
-(defn map-keys
-  "Transforms the top-level keys in the map using the given function.
-  Uses for-map. (14.564 usec).
-
-  - fn: Function used to transform the keys. Takes a single argument, the existing key, returning a new key value.
-  - value-map: Map to be transformed.
-  - returns: New map, with all top-level keys in value-map transformed by fn.
-    Handles nil value-map, returning nil
-"
-  [fn value-map]
-  (if (empty? value-map)
-    value-map
-    (pc/for-map [[key value] value-map]
-                (fn key) value)))
-
-(defn map-all-keys
-  "Transforms the keys in the map and nested maps using the given function.
-
-  - fn: Function used to transform the keys. Takes a single argument, the existing key,  returning a new key value.
-  - value-map: Map to be transformed.
-  - returns: New map, with all keys, including keys in nested maps, transformed by fn.
-    Handles nil value-map, returning nil
-"
-  [map-fn value-map]
-  (if (empty? value-map)
-    value-map
-    (pc/for-map [[key value] value-map]
-                (map-fn key) (if (map? value)
-                               (map-all-keys map-fn value)
-                               value))))
-
 ;; ============================= Vector functions ===================
 
 (defn vec-remove-nil
@@ -852,7 +859,7 @@ eg:
 ```
 "
   [coll id-key id]
-  (println "find-element(): coll: " coll " id-key: " id-key " id: " id)
+  ;;(println "find-element(): coll: " coll " id-key: " id-key " id: " id)
   (find-by-pred coll #(= id (get % id-key))))
 
 (defn replace-element-by-pred
@@ -981,6 +988,9 @@ eg:
 (defn parse-int
   "Platform independent int parser.
 
+   Will fail on invalid characters, including digits
+   with trailing non-digits, which standard Javascript does not.
+
    - string-int: String representation of integer
    - returns: integer version of string. If no valid integer
      returns nil
@@ -994,10 +1004,13 @@ eg:
             (Integer/parseInt string-int)
             (catch Exception e nil))
 
-     :cljs (let [result (js/parseInt string-int)]
-             (if (js/isNan result)
-               nil
-               result))))
+     ;; Javascript ignores trailing non-digits, we want to trap for that.
+     :cljs (if (re-matches #"^(-|\+)?(\d+|Infinity)$" string-int)
+             (let [result (js/parseInt string-int)]
+               (if (js/isNaN result)
+                 nil
+                 result))
+             nil)))
 
 (defn str-to-int
   "Returns the given string value as an integer, using the platform specific parseInt.
