@@ -1,0 +1,8 @@
+.depth-7 .inner { padding-left: 76px; }
+.depth-8 .inner { padding-left: 90px; }
+.depth-9 .inner { padding-left: 104px; }
+.depth-10 .inner { padding-left: 118px; }
+
+.sidebar li .no-link {
+  font-style: italic;
+}
