@@ -24,7 +24,7 @@ The functions within the cljc-common library  are categorized by namespace as fo
 |[graphics.color](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.color.html) | Functions for color calculations and color model conversions.|
 |[graphics.line](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.line.html)|Simple line equation and point on line functions.|
 |[graphics.interpolate](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.interpolate.html)|Functions for performing interpolation between points and control points.|
-|[state.migration](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.state.html)|Functions for migrating Clojure maps, used to represent application state, between state versions. |
+|[state.migration](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.state.migration.html)|Functions for migrating Clojure maps, used to represent application state, between state versions. |
 |[version](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.version.html)|Functions dealing with references to assets/data and historic versions of assets/data.|
 |[config](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.config.html)|Functions to support using edn files for global and environment specific configuration.|
 
