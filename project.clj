@@ -58,6 +58,7 @@
                    :themes [:rdash :deeptree]
                    :source-paths ["src/cljc"]
                    :source-uri "https://github.com/nicheware/cljc-common/blob/master/{filepath}#L{line}"
+                   :output-path "codox"
                    }}
    }
   :aliases {"codox" ["with-profile" "+codox" "codox"]}
