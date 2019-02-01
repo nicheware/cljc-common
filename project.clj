@@ -1,4 +1,4 @@
-(defproject nicheware/cljc-common "0.1.0-SNAPSHOT"
+(defproject nicheware/cljc-common "1.0.0"
   :description "Clojure/Clojurescript library of utility functions common to service and client development"
   :url "http://github.com/nicheware/cljc-common"
   :license {:name "Eclipse Public License"
@@ -58,6 +58,7 @@
                    :themes [:rdash :deeptree]
                    :source-paths ["src/cljc"]
                    :source-uri "https://github.com/nicheware/cljc-common/blob/master/{filepath}#L{line}"
+                   :output-path "codox"
                    }}
    }
   :aliases {"codox" ["with-profile" "+codox" "codox"]}
