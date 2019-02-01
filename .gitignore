@@ -4,6 +4,7 @@
 /checkouts
 /node_modules
 /resources/public/js
+/codox
 package-lock.json
 pom.xml
 pom.xml.asc
