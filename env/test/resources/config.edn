@@ -1,3 +1,4 @@
 {:env "default"
  :value "common-value"
+ :computed (str "one" "-" "two")
  :file "{{env}}-file.txt"}

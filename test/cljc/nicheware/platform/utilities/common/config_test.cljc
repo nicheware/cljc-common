@@ -70,7 +70,20 @@
              (sut/resolve-template-vars {:first "one"
                                          :second "{{first}}-two"
                                          :third "{{second}}-three"
-                                         })))))
+                                         }))))
+
+  (t/testing "Test replacement of recursive variables in nested map"
+    (t/is (= {:first "one"
+              :second "one-two"
+              :third "one-two-three"
+              }
+             (sut/resolve-template-vars {:company {:name "Nicheware Solutions"
+                                                   :dns "nicheware.com.au"
+                                                   :s3-suffix "nicheware-com-au"}
+                                         :env "test"
+                                         :application {:name "cfn"}
+
+                                         :cfn-prefix "{{application.name}}-{{env}}"})))))
 
 ;; ============================ Classpath config ================================
 
@@ -78,6 +91,7 @@
   (t/testing "Load from test directory and merge config.edn and env-config.edn (the defaults), and resolve"
     (t/is (= {:env "test"
               :other "value"
+              :computed "one-two",
               :file "test-file.txt"
               :value "common-value"}
              (sut/load-config "."))))
@@ -85,6 +99,7 @@
   (t/testing "Load from test directory and no resolving of variables"
     (t/is (= {:env "test"
               :other "value"
+              :computed "one-two"
               :file "{{env}}-file.txt"
               :value "common-value"}
              (sut/load-config "." {:resolve-vars false}))))

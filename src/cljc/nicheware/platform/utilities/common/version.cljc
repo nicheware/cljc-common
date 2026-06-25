@@ -226,9 +226,9 @@
   ([element] (timestamp-element element false))
   ([element force]
    ;;(println "timestamp-element(): element: " element)
-   (if (or force (:modified-time element))
-     element
-     (assoc element :modified-time (common/current-time-millis)))))
+   (if (or force (not (:modified-time element)))
+     (assoc element :modified-time (common/current-time-millis))
+     element)))
 
 (defn version-element
   "Prepare a new element for versioning. Will ensure timestamped and also
@@ -239,7 +239,7 @@
 "
   [element]
   (-> element
-      timestamp-element
+      (timestamp-element true)
       (common/cond-t :starred #(assoc % :starred false))))
 
 (defn add-version

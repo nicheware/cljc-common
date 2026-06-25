@@ -113,6 +113,7 @@
 #?(:clj
    (defn read-config
      "Reads a single config file from the classpath, returning as a clojure map.
+      Will evaluate the map, so any functions used in values will be executed.
 
      - config-file-path:  eg ```yourapp/config.edn```
      - returns: config file as clojure map.
@@ -123,7 +124,8 @@
      (if-let [config (some-> config-file-path
                              clojure.java.io/resource
                              slurp
-                             clojure.edn/read-string)]
+                             clojure.edn/read-string
+                             eval)]
        config
        {})))
 

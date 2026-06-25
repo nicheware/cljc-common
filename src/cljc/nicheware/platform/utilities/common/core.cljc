@@ -689,7 +689,7 @@ eg:
   "Transforms the top-level keys in the map using the given function.
   Uses for-map. (14.564 usec).
 
-  - fn: Function used to transform the keys. Takes a single argument, the existing key, returning a new key value.
+  - map-fn: Function used to transform the keys. Takes a single argument, the existing key, returning a new key value.
   - value-map: Map to be transformed.
   - returns: New map, with all top-level keys in value-map transformed by fn.
     Handles nil value-map, returning nil

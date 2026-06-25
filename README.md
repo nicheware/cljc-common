@@ -1,6 +1,6 @@
 # cljc-common
 
-A Clojure library utility functions that can be called from either a Clojure or Clojurescript application.
+A Clojure library of utility functions that can be called from either a Clojure or Clojurescript application.
 
 ## Installation
 

@@ -346,34 +346,34 @@
   (t/testing "Test int, should not be true"
     (t/is (not (sut/is-empty? 23)))))
 
-((t/deftest test-max-length
-   (t/testing "Test length positive"
-     (let [max-len (sut/max-length 3)]
-       (t/is (max-len ""))
-       (t/is (max-len "12"))
-       (t/is (max-len "123"))
-       (t/is (not (max-len "1234")))))
+(t/deftest test-max-length
+  (t/testing "Test length positive"
+    (let [max-len (sut/max-length 3)]
+      (t/is (max-len ""))
+      (t/is (max-len "12"))
+      (t/is (max-len "123"))
+      (t/is (not (max-len "1234")))))
 
-   (t/testing "Test length 0"
-     (let [max-len (sut/max-length 0)]
-       (t/is (max-len ""))
-       (t/is (not (max-len "1")))
-       (t/is (not (max-len "1234")))))))
+  (t/testing "Test length 0"
+    (let [max-len (sut/max-length 0)]
+      (t/is (max-len ""))
+      (t/is (not (max-len "1")))
+      (t/is (not (max-len "1234"))))))
 
-((t/deftest test-min-length
-   (t/testing "Test length positive"
-     (let [min-len (sut/min-length 3)]
-       (t/is (min-len "123"))
-       (t/is (min-len "1234"))
-       (t/is (not (min-len "12")))
-       (t/is (not (min-len "1")))
-       (t/is (not (min-len "")))))
+(t/deftest test-min-length
+  (t/testing "Test length positive"
+    (let [min-len (sut/min-length 3)]
+      (t/is (min-len "123"))
+      (t/is (min-len "1234"))
+      (t/is (not (min-len "12")))
+      (t/is (not (min-len "1")))
+      (t/is (not (min-len "")))))
 
-   (t/testing "Test length 0"
-     (let [min-len (sut/min-length 0)]
-       (t/is (min-len ""))
-       (t/is (min-len "1"))
-       (t/is (min-len "1234"))))))
+  (t/testing "Test length 0"
+    (let [min-len (sut/min-length 0)]
+      (t/is (min-len ""))
+      (t/is (min-len "1"))
+      (t/is (min-len "1234")))))
 
 ;; =========================== Sequence index functions =================================
 
