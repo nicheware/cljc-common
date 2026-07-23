@@ -38,6 +38,11 @@
 
   :profiles
   {:dev {:dependencies [[camel-snake-kebab "0.4.0"]
+                        ;; JAXB API removed from Java 11+ core. ClojureScript 1.9.562 imports
+                        ;; javax.xml.bind.DatatypeConverter in cljs.util (content-sha), so the
+                        ;; compiler will not load on a modern JDK without this. Scoped to :dev so
+                        ;; it does not leak into the published pom - it is only needed to build.
+                        [javax.xml.bind/jaxb-api "2.3.1"]
                         ]
          :source-paths ["dev"]
          :resource-paths ["env/dev/resources"]
