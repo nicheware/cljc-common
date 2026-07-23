@@ -72,10 +72,14 @@
                                          :third "{{second}}-three"
                                          }))))
 
-  (t/testing "Test replacement of recursive variables in nested map"
-    (t/is (= {:first "one"
-              :second "one-two"
-              :third "one-two-three"
+  (t/testing "Test replacement using a dotted path into a nested map"
+    (t/is (= {:company {:name "Nicheware Solutions"
+                        :dns "nicheware.com.au"
+                        :s3-suffix "nicheware-com-au"}
+              :env "test"
+              :application {:name "cfn"}
+
+              :cfn-prefix "cfn-test"
               }
              (sut/resolve-template-vars {:company {:name "Nicheware Solutions"
                                                    :dns "nicheware.com.au"
