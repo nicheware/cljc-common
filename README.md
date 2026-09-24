@@ -19,7 +19,7 @@ The functions within the cljc-common library  are categorized by namespace as fo
 |Namespace|Description|
 |---|---|
 |[core](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.core.html)|Functions that complement those in clojure.core, operating on the main clojure collections.|
-|[math](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.math.html)|Simple mathematical functions and functions dealing with floats.|
+|[math](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.math.html)|Simple mathematical functions, functions dealing with floats, and exact fraction rounding, formatting and parsing.|
 |[graphics](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.html) |Functions useful in graphics and drawing calculations.|
 |[graphics.color](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.color.html) | Functions for color calculations and color model conversions.|
 |[graphics.line](http://nicheware.github.io/cljc-common/nicheware.platform.utilities.common.graphics.line.html)|Simple line equation and point on line functions.|

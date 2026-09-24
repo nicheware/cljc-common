@@ -104,3 +104,202 @@
   (t/testing "Test getting 3 values from reverse range"
     (t/is (= [10 5.0 2.5 1.25]
              (take 4 (sut/ratio-sequence 0.5 10 0))))))
+
+;; ======================== Exact fractions =====================================
+;;
+;; Portable assertions write expected values as (/ n d): an exact Ratio on the JVM and the
+;; equivalent double in ClojureScript. JVM-only exactness (type) checks are under #?(:clj ...).
+
+(defn- no-double?
+  "JVM: true if value is an exact Long, BigInt or Ratio (never a Double)."
+  [value]
+  #?(:clj (or (instance? Long value) (ratio? value) (instance? clojure.lang.BigInt value))
+     :cljs true))
+
+(defn- illegal-arg-thrown?
+  [f]
+  (try (f) false
+       (catch #?(:clj IllegalArgumentException :cljs js/Error) _ true)))
+
+(t/deftest test-round-to-increment
+  (t/testing "Round up to increment"
+    (t/is (= (/ 3 8) (sut/round-to-increment (/ 13 36) (/ 1 8) :up)))
+    (t/is (= (/ 3 8) (sut/round-to-increment (/ 3 8) (/ 1 8) :up)) "Exact multiple unchanged"))
+
+  (t/testing "Round down to increment"
+    (t/is (= 2 (sut/round-to-increment (/ 5 2) 1 :down)))
+    (t/is (= (/ 1 4) (sut/round-to-increment (/ 13 36) (/ 1 8) :down))))
+
+  (t/testing "Round to nearest increment, ties round up"
+    (t/is (= (/ 1 8) (sut/round-to-increment (/ 1 16) (/ 1 8) :nearest)))
+    (t/is (= (/ 3 8) (sut/round-to-increment (/ 13 36) (/ 1 8) :nearest)))
+    (t/is (= 3 (sut/round-to-increment (/ 5 2) 1 :nearest)))
+    (t/is (= -2 (sut/round-to-increment (/ -5 2) 1 :nearest)) "Negative tie rounds toward +infinity"))
+
+  (t/testing "Negative values"
+    (t/is (= (/ -1 4) (sut/round-to-increment (/ -13 36) (/ 1 8) :up)))
+    (t/is (= (/ -3 8) (sut/round-to-increment (/ -13 36) (/ 1 8) :down)))
+    (t/is (= -3 (sut/round-to-increment (/ -5 2) 1 :down))))
+
+  (t/testing "Zero"
+    (t/is (zero? (sut/round-to-increment 0 (/ 1 8) :up))))
+
+  (t/testing "Double inputs use Math rounding"
+    (t/is (= 0.25 (sut/round-to-increment 0.3 0.25 :nearest)))
+    (t/is (= 0.5 (sut/round-to-increment 0.3 0.25 :up))))
+
+  (t/testing "Invalid arguments"
+    (t/is (illegal-arg-thrown? #(sut/round-to-increment 1 0 :up)))
+    (t/is (illegal-arg-thrown? #(sut/round-to-increment 1 -1 :up)))
+    (t/is (illegal-arg-thrown? #(sut/round-to-increment 1 (/ 1 8) :sideways)))
+    (t/is (illegal-arg-thrown? #(sut/round-to-increment nil (/ 1 8) :up))))
+
+  #?(:clj
+     (t/testing "JVM exact inputs give exact results, whole results as Long"
+       (t/is (ratio? (sut/round-to-increment 13/36 1/8 :up)))
+       (t/is (instance? Long (sut/round-to-increment 5/2 1 :down)))
+       (t/is (instance? Long (sut/round-to-increment 15/16 1/8 :nearest)))
+       (t/is (instance? Long (sut/round-to-increment 0 1/8 :up)))
+       (t/is (= 3/8 (sut/round-to-increment 13/36 1/8 :up)))
+       (t/is (every? no-double?
+                     (for [n (range -40 41)
+                           direction [:up :down :nearest]]
+                       (sut/round-to-increment (/ n 36) 1/8 direction))))
+       (t/is (= 1000000000000000000001/8
+                (sut/round-to-increment 100000000000000000000003/800 1/8 :up))
+             "BigInt numerators stay exact")
+       (t/is (instance? Double (sut/round-to-increment 13/36 0.125 :up))
+             "A double increment gives a double result"))))
+
+(t/deftest test-round-to-increment-exact-properties
+  #?(:clj
+     (t/testing "JVM: result is a multiple of increment within one increment of value, in the right direction"
+       (doseq [n (range -100 101)
+               :let [value     (/ n 37)
+                     increment 1/8]]
+         (let [up      (sut/round-to-increment value increment :up)
+               down    (sut/round-to-increment value increment :down)
+               nearest (sut/round-to-increment value increment :nearest)]
+           (t/is (integer? (/ up increment)))
+           (t/is (integer? (/ down increment)))
+           (t/is (<= down value up))
+           (t/is (< (- up down) (* 2 increment)))
+           (t/is (<= (Math/abs (double (- nearest value))) (/ increment 2)))))))
+  (t/testing "Portable: :nearest agrees with :up or :down"
+    (doseq [n (range -20 21)
+            :let [value (/ n 7)]]
+      (t/is (contains? (hash-set (sut/round-to-increment value (/ 1 4) :up)
+                                 (sut/round-to-increment value (/ 1 4) :down))
+                       (sut/round-to-increment value (/ 1 4) :nearest))))))
+
+(t/deftest test-to-ratio
+  (t/testing "Doubles converted to nearest simple fraction"
+    (t/is (= (/ 1 4) (sut/to-ratio 0.25)))
+    (t/is (= (/ 1 3) (sut/to-ratio 0.3333333333333333)))
+    (t/is (= (/ 5 2) (sut/to-ratio 2.5)))
+    (t/is (= (/ -3 8) (sut/to-ratio -0.375)))
+    (t/is (= 3 (sut/to-ratio 3.0)))
+    (t/is (= 0 (sut/to-ratio 0.001))))
+
+  (t/testing "Max denominator respected"
+    (t/is (= (/ 1 8) (sut/to-ratio 0.1 8)))
+    (t/is (= (/ 1 10) (sut/to-ratio 0.1)))
+    (t/is (= 0 (sut/to-ratio 0.2 2)) "Equal error to 0 and 1/2: smallest denominator wins")
+    (t/is (= 1 (sut/to-ratio 0.9 1))))
+
+  (t/testing "Integers returned unchanged"
+    (t/is (= 3 (sut/to-ratio 3))))
+
+  (t/testing "Invalid arguments"
+    (t/is (illegal-arg-thrown? #(sut/to-ratio 0.5 0)))
+    (t/is (illegal-arg-thrown? #(sut/to-ratio nil)))
+    (t/is (illegal-arg-thrown? #(sut/to-ratio (/ 0.0 0.0)))))
+
+  #?(:clj
+     (t/testing "JVM returns exact values, exact inputs unchanged"
+       (t/is (ratio? (sut/to-ratio 0.25)))
+       (t/is (instance? Long (sut/to-ratio 3.0)))
+       (t/is (instance? Long (sut/to-ratio 3)))
+       (t/is (= 1/127 (sut/to-ratio 1/127)) "Exact ratio unchanged regardless of denominator")
+       (t/is (= 3/2 (sut/to-ratio 1.5M)) "BigDecimal is treated as a non-exact value"))))
+
+(t/deftest test-format-fraction
+  (t/testing "Ascii (default) style"
+    (t/is (= "2 1/2" (sut/format-fraction (/ 5 2))))
+    (t/is (= "1/4" (sut/format-fraction (/ 1 4))))
+    (t/is (= "44" (sut/format-fraction 44)))
+    (t/is (= "0" (sut/format-fraction 0)))
+    (t/is (= "-2 1/2" (sut/format-fraction (/ -5 2))))
+    (t/is (= "-1/4" (sut/format-fraction (/ -1 4))))
+    (t/is (= "1 3/8" (sut/format-fraction (/ 11 8))))
+    (t/is (= "1 3/8" (sut/format-fraction (/ 11 8) {:style :ascii}))))
+
+  (t/testing "Unicode style"
+    (t/is (= "2½" (sut/format-fraction (/ 5 2) {:style :unicode})))
+    (t/is (= "¼" (sut/format-fraction (/ 1 4) {:style :unicode})))
+    (t/is (= "1⅜" (sut/format-fraction (/ 11 8) {:style :unicode})))
+    (t/is (= "-2½" (sut/format-fraction (/ -5 2) {:style :unicode})))
+    (t/is (= "44" (sut/format-fraction 44 {:style :unicode})))
+    (t/is (= "1 5/16" (sut/format-fraction (/ 21 16) {:style :unicode})) "No glyph falls back to ascii"))
+
+  (t/testing "Doubles converted with to-ratio"
+    (t/is (= "3/8" (sut/format-fraction 0.375)))
+    (t/is (= "2 1/3" (sut/format-fraction 2.3333333333)))
+    (t/is (= "1/8" (sut/format-fraction 0.1 {:max-denominator 8})))
+    (t/is (= "⅛" (sut/format-fraction 0.1 {:style :unicode :max-denominator 8}))))
+
+  (t/testing "Invalid arguments"
+    (t/is (illegal-arg-thrown? #(sut/format-fraction 1 {:style :latex})))
+    (t/is (illegal-arg-thrown? #(sut/format-fraction nil))))
+
+  #?(:clj
+     (t/testing "JVM exact ratio formatted regardless of max-denominator"
+       (t/is (= "1/127" (sut/format-fraction 1/127 {:max-denominator 8}))))))
+
+(t/deftest test-parse-mixed-fraction
+  (t/testing "Accepted forms"
+    (t/is (= 44 (sut/parse-mixed-fraction "44")))
+    (t/is (= (/ 1 4) (sut/parse-mixed-fraction "1/4")))
+    (t/is (= (/ 5 2) (sut/parse-mixed-fraction "5/2")))
+    (t/is (= (/ 3 2) (sut/parse-mixed-fraction "6/4")))
+    (t/is (= (/ 5 2) (sut/parse-mixed-fraction "2 1/2")))
+    (t/is (= (/ 5 2) (sut/parse-mixed-fraction "2½")))
+    (t/is (= (/ 5 2) (sut/parse-mixed-fraction "2 ½")))
+    (t/is (= (/ 1 2) (sut/parse-mixed-fraction "½")))
+    (t/is (= (/ 11 8) (sut/parse-mixed-fraction "1⅜")))
+    (t/is (= (/ 1 10) (sut/parse-mixed-fraction "⅒")))
+    (t/is (= 0 (sut/parse-mixed-fraction "0"))))
+
+  (t/testing "Negative forms"
+    (t/is (= -44 (sut/parse-mixed-fraction "-44")))
+    (t/is (= (/ -1 4) (sut/parse-mixed-fraction "-1/4")))
+    (t/is (= (/ -5 4) (sut/parse-mixed-fraction "-1 1/4")))
+    (t/is (= (/ -5 2) (sut/parse-mixed-fraction "-2½")))
+    (t/is (= (/ -1 2) (sut/parse-mixed-fraction "-½"))))
+
+  (t/testing "Surrounding whitespace trimmed"
+    (t/is (= (/ 5 2) (sut/parse-mixed-fraction "  2 1/2 \t"))))
+
+  (t/testing "Rejected forms return nil"
+    (doseq [s ["0.25" "1/0" "2 1/0" "" "   " "2 1/2 3" "44\"" "2  1/2" "2 3/2" "2 0/4"
+               "+2" "- 2" "1/2/3" "abc" "2 ½ ½" "2½\"" "1 /2"]]
+      (t/is (nil? (sut/parse-mixed-fraction s)) (str "Should reject: " (pr-str s))))
+    (t/is (nil? (sut/parse-mixed-fraction nil)))
+    (t/is (nil? (sut/parse-mixed-fraction 44))))
+
+  #?(:clj
+     (t/testing "JVM returns exact values"
+       (t/is (instance? Long (sut/parse-mixed-fraction "44")))
+       (t/is (instance? Long (sut/parse-mixed-fraction "8/4")))
+       (t/is (ratio? (sut/parse-mixed-fraction "2 1/2")))
+       (t/is (ratio? (sut/parse-mixed-fraction "2½")))
+       (t/is (= 99999999999999999999999N (sut/parse-mixed-fraction "99999999999999999999999"))))))
+
+(t/deftest test-format-parse-round-trip
+  (t/testing "parse-mixed-fraction inverts format-fraction for both styles"
+    (doseq [style [:ascii :unicode]
+            d     [1 2 3 4 5 6 7 8 9 10 12 16 32 64]
+            n     (range -70 71)
+            :let  [r (/ n d)]]
+      (t/is (= r (sut/parse-mixed-fraction (sut/format-fraction r {:style style})))
+            (str "Round trip " style " " n "/" d)))))

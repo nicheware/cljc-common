@@ -46,7 +46,10 @@ All namespaces live under `nicheware.platform.utilities.common`:
 - `core` — the base namespace; complements `clojure.core` (slicing, collection insert/replace, map
   transforms, searching, string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
   `current-time-millis`, `edn-read`). Nearly every other namespace depends on it (notably `deep-merge`).
-- `math` — float/number helpers.
+- `math` — float/number helpers, plus exact fractions: `round-to-increment`, `to-ratio`, `format-fraction`
+  and `parse-mixed-fraction`. On the JVM these keep exact inputs (Long/BigInt/Ratio) exact, using integer
+  arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has
+  no ratios, so there they operate on doubles. Note the older `roundn`/`div` always return doubles.
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
 - `version` — in-memory versioning of an "asset map" of the shape
   `{<asset-key> {:current <modified-time> :name <asset-key> :versions {<modified-time> <asset> ...}}}`.
