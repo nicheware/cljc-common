@@ -91,22 +91,50 @@
 
 ;; ============================ Classpath config ================================
 
+#?(:clj
+   (t/deftest test-read-config
+     (t/testing "Single arity reads the file without evaluating values"
+       (t/is (= {:env "default"
+                 :value "common-value"
+                 :computed '(str "one" "-" "two")
+                 :file "{{env}}-file.txt"}
+                (sut/read-config "config.edn"))))
+
+     (t/testing "Evaluates values when :eval-values? is true"
+       (t/is (= {:env "default"
+                 :value "common-value"
+                 :computed "one-two"
+                 :file "{{env}}-file.txt"}
+                (sut/read-config "config.edn" {:eval-values? true}))))
+
+     (t/testing "Missing resource returns an empty map"
+       (t/is (= {} (sut/read-config "no-such-config.edn")))
+       (t/is (= {} (sut/read-config "no-such-config.edn" {:eval-values? true}))))))
+
 (t/deftest test-load-config
   (t/testing "Load from test directory and merge config.edn and env-config.edn (the defaults), and resolve"
+    (t/is (= {:env "test"
+              :other "value"
+              :computed '(str "one" "-" "two")
+              :file "test-file.txt"
+              :value "common-value"}
+             (sut/load-config "."))))
+
+  (t/testing "Load from test directory, evaluating values, and resolve"
     (t/is (= {:env "test"
               :other "value"
               :computed "one-two",
               :file "test-file.txt"
               :value "common-value"}
-             (sut/load-config "."))))
+             (sut/load-config "." {:eval-values? true}))))
 
-  (t/testing "Load from test directory and no resolving of variables"
+  (t/testing "Load from test directory, evaluating values, and no resolving of variables"
     (t/is (= {:env "test"
               :other "value"
               :computed "one-two"
               :file "{{env}}-file.txt"
               :value "common-value"}
-             (sut/load-config "." {:resolve-vars false}))))
+             (sut/load-config "." {:resolve-vars false :eval-values? true}))))
 
   (t/testing "Load from dev directory and merge config.edn and env-config.edn (the defaults)"
     (let [expected-config {:version "1.2.0",

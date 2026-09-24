@@ -41,11 +41,18 @@
 ```clojure
 {:env-file-name \"env-config.edn\"
  :common-file-name \"config.edn\"
- :resolve-vars true}
+ :resolve-vars true
+ :eval-values? false}
 ```
 
   The opts arguments may also define ```:common-path``` or ```:env-path```, which would then be used
   instead of building up the path from the file name and provided path prefix.
+
+  ```:eval-values?``` only applies to the classpath functions [[read-config]] and [[load-config]]. When true,
+  each file read is passed to ```eval``` after being read as EDN, so forms such as ```(str \"a\" \"b\")``` in
+  values are executed. It defaults to false because runtime ```eval``` is not supported under GraalVM
+  native-image and is unsafe for config that is not fully trusted. When false the values are returned
+  exactly as read, so such a form comes back as an unevaluated list. The HTTP functions never evaluate values.
 "
   (:require [promesa.core :as p]
             [kvlt.core :as kvlt]
@@ -58,7 +65,8 @@
 (def ^:no-doc base-opts
   {:env-file-name "env-config.edn"
    :common-file-name "config.edn"
-   :resolve-vars true})
+   :resolve-vars true
+   :eval-values? false})
 
 (def ^:no-doc re-mustache-match #"\{\{[^{}]*\}\}")
 
@@ -90,7 +98,6 @@
    Transforms to a string then feeds the map as the parameter resolver.
     Will recurse until no unresolved mustache variables."
   [val-map]
-  (println "resolve-template-vars(), val-map: " val-map)
   (loop [vmap val-map]
     (let [map-str (pr-str vmap)
           resolved-str (render map-str vmap)
@@ -113,35 +120,43 @@
 #?(:clj
    (defn read-config
      "Reads a single config file from the classpath, returning as a clojure map.
-      Will evaluate the map, so any functions used in values will be executed.
+
+      By default the file is only read as EDN, so values are returned exactly as written. When
+      ```:eval-values?``` is true the map is also passed to ```eval```, so any functions used in values
+      will be executed. Evaluation is opt-in because runtime ```eval``` is not supported under GraalVM
+      native-image and is unsafe for config that is not fully trusted.
 
      - config-file-path:  eg ```yourapp/config.edn```
-     - returns: config file as clojure map.
+     - opts:              optional map, ```{:eval-values? false}``` by default.
+     - returns: config file as clojure map, or ```{}``` if the resource does not exist.
 
 "
-     [config-file-path]
-     (println "read-config(), config-file-path: " config-file-path)
-     (if-let [config (some-> config-file-path
-                             clojure.java.io/resource
-                             slurp
-                             clojure.edn/read-string
-                             eval)]
-       config
-       {})))
+     ([config-file-path] (read-config config-file-path {}))
+
+     ([config-file-path {:keys [eval-values?]}]
+      (if-let [config (some-> config-file-path
+                              clojure.java.io/resource
+                              slurp
+                              clojure.edn/read-string)]
+        (cond-> config
+          eval-values? eval)
+        {}))))
 
 #?(:clj
    (defn load-config
      "Loads config from the classpath, using the given path prefix for env and common files.
 
       - config-path:   path prefix for both env and common file (eg ```yourapp```)
-      - opts:          optional override of default values ```{:env-file-name :env-path :common-file-name :common-path :resolve-vars}```
+      - opts:          optional override of default values ```{:env-file-name :env-path :common-file-name :common-path :resolve-vars :eval-values?}```.
+                       ```:eval-values?``` (default false) is passed to [[read-config]] for both files; see it for why evaluation is opt-in.
       - Returns:       a map which is a merge of the env and common config, optionally with all variables evualted."
      ([config-path] (load-config config-path {}))
 
      ([config-path opts]
-      (let [{:keys [env-path common-path resolve-vars]} (build-config-options config-path opts)]
-        (cond->        (read-config common-path)
-          true         (common/deep-merge (read-config env-path))
+      (let [{:keys [env-path common-path resolve-vars] :as config-opts} (build-config-options config-path opts)
+            read-opts (select-keys config-opts [:eval-values?])]
+        (cond->        (read-config common-path read-opts)
+          true         (common/deep-merge (read-config env-path read-opts))
           resolve-vars resolve-template-vars)))))
 
 
@@ -155,7 +170,6 @@
    - returns: a promesa promise that resolves to the map of config values read.
   "
   [config-url]
-  (println "read-http-config(), config-url: " config-url)
   (-> (kvlt/request! {:url config-url :as :edn})
       (p/then :body)))
 
@@ -173,14 +187,12 @@
   ([config-path opts]
    (let [{:keys [env-path common-path resolve-vars]} (build-config-options config-path opts)]
 
-     (println "load-http-config(), env-path: " env-path " common-path: " common-path)
      ;; Read both config in parallel, waiting until both done
      (-> (p/all [(read-http-config env-path)
                  (read-http-config common-path)])
 
          ;; Merge the configs and optional resolve vars
          (p/then (fn [[env-config common-config]]
-                   (println "load-http-config(): all complete, env-config: " env-config " common-config: " common-config)
                    (cond-> common-config
                      true (common/deep-merge env-config)
                      resolve-vars resolve-template-vars)))))))
