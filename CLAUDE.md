@@ -56,6 +56,11 @@ All namespaces live under `nicheware.platform.utilities.common`:
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
   `graphics` also converts curves to cubic Bezier path segments (`[:move p]`/`[:line p]`/`[:cubic c1 c2 p]`):
   `arc->cubics` (SVG `A`-command endpoint arcs, per SVG 1.1 F.6.5/F.6.6, y-down) and `ellipse->cubics`.
+  It also has an affine-matrix vocabulary shared by SVG `transform` and PDF `cm` (`[a b c d e f]`;
+  `compose-matrix` uses SVG transform-list order, rightmost applied first; `transform->matrix` accepts the
+  legacy `{:x :y :scale}` or `{:translate :scale :rotate}`), bounding boxes `{:x :y :width :height}` (nil for
+  empty input; `segments-bounding-box` uses exact cubic extrema), and `hatch-rect` (origin-anchored hatch
+  lines/dots analytically clipped to a rect).
   `graphics.color` works on `[R G B A]` 0–255 vectors or packed ARGB ints (normalised via `color-as-rgba`;
   no CSS-string parsing) and includes WCAG `relative-luminance` / `contrast-ratio`.
 - `version` — in-memory versioning of an "asset map" of the shape
