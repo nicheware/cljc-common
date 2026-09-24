@@ -375,6 +375,276 @@
       (t/is (min-len "1"))
       (t/is (min-len "1234")))))
 
+;; =========================== Sequence pattern functions =============================
+
+(defn- all-seqs
+  "All sequences of length 0..max-len drawn from values, used as an exhaustive property-test domain."
+  [values max-len]
+  (mapcat (fn [len]
+            (reduce (fn [acc _] (for [prefix acc value values] (conj prefix value)))
+                    [[]]
+                    (range len)))
+          (range (inc max-len))))
+
+(def property-domain
+  (concat (all-seqs [:a :b nil] 5)
+          (all-seqs [1 false] 6)
+          ["" "a" "aab" "abcabc" "mississippi"]))
+
+(defn- rebuild-from-motif
+  "Reconstructs the original collection from a find-repeating-motif result."
+  [{:keys [motif repeats exceptions]}]
+  (reduce (fn [v {:keys [index actual]}] (assoc v index actual))
+          (vec (apply concat (repeat repeats motif)))
+          exceptions))
+
+(t/deftest test-run-length-encode
+  (t/testing "Runs of equal values"
+    (t/is (= [[:a 2] [:b 1] [:a 1]]
+             (sut/run-length-encode [:a :a :b :a])))
+    (t/is (= [[1 3]]
+             (sut/run-length-encode '(1 1 1)))))
+
+  (t/testing "nil and false are values"
+    (t/is (= [[nil 2] [false 1] [nil 1]]
+             (sut/run-length-encode [nil nil false nil]))))
+
+  (t/testing "Strings give chars"
+    (t/is (= [[\a 2] [\b 1]]
+             (sut/run-length-encode "aab"))))
+
+  (t/testing "Empty and nil"
+    (t/is (= [] (sut/run-length-encode [])))
+    (t/is (= [] (sut/run-length-encode nil)))
+    (t/is (vector? (sut/run-length-encode nil))))
+
+  (t/testing "Values compared with ="
+    (t/is (= [[[1 2] 2]]
+             (sut/run-length-encode [[1 2] '(1 2)])))))
+
+(t/deftest test-run-length-decode
+  (t/testing "Expand pairs"
+    (t/is (= [:a :a :b :a]
+             (sut/run-length-decode [[:a 2] [:b 1] [:a 1]])))
+    (t/is (vector? (sut/run-length-decode [[:a 2]]))))
+
+  (t/testing "Zero counts contribute nothing"
+    (t/is (= [:b]
+             (sut/run-length-decode [[:a 0] [:b 1]]))))
+
+  (t/testing "Empty and nil"
+    (t/is (= [] (sut/run-length-decode [])))
+    (t/is (= [] (sut/run-length-decode nil)))))
+
+(t/deftest test-maximal-runs
+  (t/testing "Runs with identity"
+    (t/is (= [{:value :a :start 0 :end 1 :length 2}
+              {:value :b :start 2 :end 2 :length 1}
+              {:value :a :start 3 :end 3 :length 1}]
+             (sut/maximal-runs [:a :a :b :a]))))
+
+  (t/testing "Runs with a key function"
+    (t/is (= [{:value true :start 0 :end 1 :length 2}
+              {:value false :start 2 :end 4 :length 3}]
+             (sut/maximal-runs [1 3 2 4 6] odd?)))
+    (t/is (= [{:value 1 :start 0 :end 1 :length 2}
+              {:value 2 :start 2 :end 2 :length 1}]
+             (sut/maximal-runs [{:id 1} {:id 1} {:id 2}] :id))))
+
+  (t/testing "Single run and single element"
+    (t/is (= [{:value \x :start 0 :end 2 :length 3}]
+             (sut/maximal-runs "xxx")))
+    (t/is (= [{:value nil :start 0 :end 0 :length 1}]
+             (sut/maximal-runs [nil]))))
+
+  (t/testing "Empty and nil"
+    (t/is (= [] (sut/maximal-runs [])))
+    (t/is (= [] (sut/maximal-runs nil)))
+    (t/is (= [] (sut/maximal-runs nil odd?)))
+    (t/is (vector? (sut/maximal-runs nil)))))
+
+(t/deftest test-maximal-runs-properties
+  (doseq [coll property-domain]
+    (let [runs  (sut/maximal-runs coll)
+          label (pr-str coll)]
+      (t/is (= (sut/run-length-encode coll) (mapv (juxt :value :length) runs)) label)
+      (t/is (= (count coll) (reduce + 0 (map :length runs))) label)
+      (t/is (every? #(= (:length %) (inc (- (:end %) (:start %)))) runs) label)
+      (t/is (every? (fn [[a b]] (= (inc (:end a)) (:start b))) (partition 2 1 runs)) label)
+      (t/is (or (empty? runs) (and (zero? (:start (first runs)))
+                                   (= (dec (count coll)) (:end (last runs)))))
+            label)
+      (t/is (every? (fn [[a b]] (not= (:value a) (:value b))) (partition 2 1 runs)) label))))
+
+(t/deftest test-run-length-round-trip
+  (t/testing "decode of encode returns the original values"
+    (doseq [coll property-domain]
+      (t/is (= (vec coll)
+               (sut/run-length-decode (sut/run-length-encode coll)))
+            (pr-str coll)))))
+
+(def bargello-motif [:w :w :w :k :w :w :w :r :r :r :r :k :d :d :d :d])
+
+(def bargello-column (vec (apply concat (repeat 3 bargello-motif))))
+
+(def bargello-column-with-exception (assoc bargello-column 3 :p))
+
+(t/deftest test-find-repeating-motif
+  (t/testing "Canonical example, exact"
+    (t/is (= {:length 16 :repeats 3 :motif bargello-motif :exact? true :exceptions []}
+             (sut/find-repeating-motif bargello-column)))
+    (t/is (= {:length 16 :repeats 3 :motif bargello-motif :exact? true :exceptions []}
+             (sut/find-repeating-motif bargello-column {:exception-budget 0}))))
+
+  (t/testing "Canonical example with one exception, within budget"
+    (t/is (= {:length     16
+              :repeats    3
+              :motif      bargello-motif
+              :exact?     false
+              :exceptions [{:index 3 :expected :k :actual :p}]}
+             (sut/find-repeating-motif bargello-column-with-exception {:exception-budget 2}))))
+
+  (t/testing "Canonical example with one exception, no budget gives whole sequence"
+    (let [result (sut/find-repeating-motif bargello-column-with-exception {:exception-budget 0})]
+      (t/is (= 48 (:length result)))
+      (t/is (= 1 (:repeats result)))
+      (t/is (= bargello-column-with-exception (:motif result)))
+      (t/is (:exact? result))
+      (t/is (= [] (:exceptions result)))))
+
+  (t/testing "Period 1, all the same"
+    (t/is (= {:length 1 :repeats 5 :motif [:a] :exact? true :exceptions []}
+             (sut/find-repeating-motif [:a :a :a :a :a]))))
+
+  (t/testing "Single value"
+    (t/is (= {:length 1 :repeats 1 :motif [:a] :exact? true :exceptions []}
+             (sut/find-repeating-motif [:a]))))
+
+  (t/testing "No repeating motif"
+    (t/is (= {:length 3 :repeats 1 :motif [:a :b :c] :exact? true :exceptions []}
+             (sut/find-repeating-motif [:a :b :c]))))
+
+  (t/testing "Budget allows a smaller period than the exact one"
+    (t/is (= {:length 6 :repeats 1 :motif [:a :b :a :b :a :c] :exact? true :exceptions []}
+             (sut/find-repeating-motif [:a :b :a :b :a :c])))
+    (t/is (= {:length     2
+              :repeats    3
+              :motif      [:a :b]
+              :exact?     false
+              :exceptions [{:index 5 :expected :b :actual :c}]}
+             (sut/find-repeating-motif [:a :b :a :b :a :c] {:exception-budget 1}))))
+
+  (t/testing "Budget large enough accepts period 1"
+    (t/is (= {:length     1
+              :repeats    4
+              :motif      [:a]
+              :exact?     false
+              :exceptions [{:index 1 :expected :a :actual :b}]}
+             (sut/find-repeating-motif [:a :b :a :a] {:exception-budget 1}))))
+
+  (t/testing "Tie with two blocks goes to the earliest block"
+    (t/is (= {:length     2
+              :repeats    2
+              :motif      [:a :b]
+              :exact?     false
+              :exceptions [{:index 2 :expected :a :actual :x}
+                           {:index 3 :expected :b :actual :y}]}
+             (sut/find-repeating-motif [:a :b :x :y] {:exception-budget 2 :periods [2]})))
+    (t/is (= [:x :b]
+             (:motif (sut/find-repeating-motif [:x :b :a :b] {:exception-budget 1})))))
+
+  (t/testing "Exceptions in ascending index order"
+    (t/is (= [0 5 7]
+             (map :index (:exceptions (sut/find-repeating-motif [:z :b :a :b :a :y :a :x :a :b]
+                                                                {:exception-budget 3}))))))
+
+  (t/testing "Explicit periods"
+    (t/is (= 4
+             (:length (sut/find-repeating-motif [:a :b :a :b :a :b :a :b] {:periods [4 8]}))))
+    (t/is (= 2
+             (:length (sut/find-repeating-motif [:a :b :a :b :a :b :a :b] {:periods [8 4 2]})))))
+
+  (t/testing "No supplied period qualifies"
+    (t/is (nil? (sut/find-repeating-motif [:a :b :a :c] {:periods [1 2]})))
+    (t/is (nil? (sut/find-repeating-motif [:a :b :a :c] {:periods []}))))
+
+  (t/testing "nil and false values"
+    (t/is (= {:length 2 :repeats 2 :motif [nil false] :exact? true :exceptions []}
+             (sut/find-repeating-motif [nil false nil false])))
+    (t/is (= [{:index 2 :expected nil :actual :a}]
+             (:exceptions (sut/find-repeating-motif [nil false :a false nil false] {:exception-budget 1})))))
+
+  (t/testing "Strings and other seqables"
+    (t/is (= {:length 3 :repeats 2 :motif [\a \b \c] :exact? true :exceptions []}
+             (sut/find-repeating-motif "abcabc")))
+    (t/is (= [1 2]
+             (:motif (sut/find-repeating-motif '(1 2 1 2)))))
+    (t/is (= [1 2]
+             (:motif (sut/find-repeating-motif (take 6 (cycle [1 2]))))))
+    (t/is (= 3
+             (:repeats (sut/find-repeating-motif (range 3) {:exception-budget 2})))))
+
+  (t/testing "Empty and nil"
+    (t/is (nil? (sut/find-repeating-motif [])))
+    (t/is (nil? (sut/find-repeating-motif nil)))
+    (t/is (nil? (sut/find-repeating-motif "" {:exception-budget 3}))))
+
+  (t/testing "Invalid options throw"
+    (doseq [opts [{:exception-budget -1}
+                  {:exception-budget 1.5}
+                  {:exception-budget nil}
+                  {:periods [3]}
+                  {:periods [0]}
+                  {:periods [-2]}
+                  {:periods [2 5]}
+                  {:periods [:a]}]]
+      (t/is #?(:clj  (thrown? IllegalArgumentException (sut/find-repeating-motif [:a :b :a :b] opts))
+               :cljs (thrown? js/Error (sut/find-repeating-motif [:a :b :a :b] opts)))
+            (pr-str opts)))))
+
+(t/deftest test-find-repeating-motif-properties
+  (doseq [coll   (remove empty? property-domain)
+          budget [0 1 2]]
+    (let [{:keys [length repeats motif exact? exceptions] :as result}
+          (sut/find-repeating-motif coll {:exception-budget budget})
+          label (pr-str coll budget)]
+      (t/is (= (count coll) (* length repeats)) label)
+      (t/is (= length (count motif)) label)
+      (t/is (<= (count exceptions) budget) label)
+      (t/is (= exact? (empty? exceptions)) label)
+      (t/is (= (vec coll) (rebuild-from-motif result)) label)
+      (t/is (every? (fn [{:keys [index expected actual]}]
+                      (and (= expected (nth motif (mod index length)))
+                           (= actual (nth (vec coll) index))
+                           (not= expected actual)))
+                    exceptions)
+            label))))
+
+(t/deftest test-cycle-to-length
+  (t/testing "Longer than coll, truncating the final repeat"
+    (t/is (= [1 2 3 1 2 3 1] (sut/cycle-to-length [1 2 3] 7)))
+    (t/is (= [1 2 3 1 2 3] (sut/cycle-to-length [1 2 3] 6))))
+
+  (t/testing "Shorter than or equal to coll"
+    (t/is (= [1 2] (sut/cycle-to-length [1 2 3] 2)))
+    (t/is (= [1 2 3] (sut/cycle-to-length [1 2 3] 3))))
+
+  (t/testing "Zero length"
+    (t/is (= [] (sut/cycle-to-length [1 2 3] 0)))
+    (t/is (= [] (sut/cycle-to-length [] 0)))
+    (t/is (= [] (sut/cycle-to-length nil 0))))
+
+  (t/testing "Other seqables"
+    (t/is (= [\a \b \a] (sut/cycle-to-length "ab" 3)))
+    (t/is (= [nil nil] (sut/cycle-to-length '(nil) 2)))
+    (t/is (vector? (sut/cycle-to-length '(1 2) 3))))
+
+  (t/testing "Invalid arguments throw"
+    (doseq [[coll n] [[[1 2] -1] [[1 2] 1.5] [[1 2] nil] [[1 2] :a] [[] 1] [nil 3]]]
+      (t/is #?(:clj  (thrown? IllegalArgumentException (sut/cycle-to-length coll n))
+               :cljs (thrown? js/Error (sut/cycle-to-length coll n)))
+            (pr-str coll n)))))
+
 ;; =========================== Sequence index functions =================================
 
 (def test-vec [{:id 1 :val "one"} {:id 2 :val "two"} {:id 3 :val "three"}])

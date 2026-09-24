@@ -10,6 +10,7 @@ There are groups of functions within common.core that deal with:
 |collection inserts| [[insert-before]], [[insert-after]], [[replace-at]]|
 |integer functions| [[range-of-range]], [[negate]], [[snap]]|
 |general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
+|sequence patterns| [[maximal-runs]], [[run-length-encode]], [[run-length-decode]], [[find-repeating-motif]], [[cycle-to-length]]|
 |collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
 |map utility|  [[deep-merge]], [[dissoc-in]], [[index-by]]|
 |map transform| [[map-values]], [[map-keys]], [[map-all-keys]]|
@@ -433,6 +434,216 @@ eg:
   (fn [str]
     (>= (count str) min)))
 
+
+;; =========================== Sequence pattern functions =============================
+
+(declare throw-illegal-arg)
+
+(defn maximal-runs
+  "Finds the maximal runs of consecutive elements whose `(f x)` values are equal (`=`), with their positions.
+
+  - coll: Any seqable (vector, list, string, ...). Strings give chars.
+  - f: Optional function applied to each element before comparison. Default `identity`.
+  - returns: Vector of maps, one per maximal run, in order:
+    - :value - `(f x)` shared by every element of the run
+    - :start - 0-based index of the first element of the run
+    - :end - 0-based index of the last element of the run (inclusive)
+    - :length - number of elements in the run
+    Empty vector for nil or an empty collection.
+
+eg:
+```clojure
+(maximal-runs [:a :a :b :a])
+  => [{:value :a :start 0 :end 1 :length 2}
+      {:value :b :start 2 :end 2 :length 1}
+      {:value :a :start 3 :end 3 :length 1}]
+
+(maximal-runs [1 3 2 4 6] odd?)
+  => [{:value true :start 0 :end 1 :length 2}
+      {:value false :start 2 :end 4 :length 3}]
+```
+"
+  ([coll]
+   (maximal-runs coll identity))
+
+  ([coll f]
+   (let [add-run (fn [[runs start] run]
+                   (let [length (count run)]
+                     [(conj runs {:value  (f (first run))
+                                  :start  start
+                                  :end    (+ start length -1)
+                                  :length length})
+                      (+ start length)]))]
+     (first (reduce add-run [[] 0] (partition-by f coll))))))
+
+(defn run-length-encode
+  "Encodes a sequence as the runs of equal consecutive values it contains.
+
+  - coll: Any seqable (vector, list, string, ...). Values are compared with `=`. Strings give chars.
+  - returns: Vector of `[value count]` pairs, one per maximal run of equal consecutive values, in order.
+    Empty vector for nil or an empty collection. See [[maximal-runs]] for runs with their positions.
+
+eg:
+```clojure
+(run-length-encode [:a :a :b :a]) => [[:a 2] [:b 1] [:a 1]]
+(run-length-encode \"aab\") => [[\\a 2] [\\b 1]]
+(run-length-encode nil) => []
+```
+"
+  [coll]
+  (mapv (juxt :value :length) (maximal-runs coll)))
+
+(defn run-length-decode
+  "Expands `[value count]` pairs back into the sequence they describe. The inverse of [[run-length-encode]].
+
+  - pairs: Seq of `[value count]` pairs. A pair with a count of zero or less contributes nothing.
+  - returns: Vector with each value repeated count times, in order. Empty vector for nil or empty pairs.
+
+eg:
+```clojure
+(run-length-decode [[:a 2] [:b 1] [:a 1]]) => [:a :a :b :a]
+(run-length-decode (run-length-encode coll)) => (vec coll)
+```
+"
+  [pairs]
+  (into [] (mapcat (fn [[value n]] (repeat n value))) pairs))
+
+(defn ^:no-doc divisors
+  "Returns all positive divisors of the positive integer n, in ascending order."
+  [n]
+  (filterv #(zero? (mod n %)) (range 1 (inc n))))
+
+(defn ^:no-doc positional-majority
+  "Returns the most frequent value in values. Ties go to the tied value that occurs first in values.
+   Values may include nil or false."
+  [values]
+  (let [freqs (frequencies values)
+        top   (apply max (vals freqs))]
+    (first (filter #(= top (get freqs %)) values))))
+
+(defn ^:no-doc period-motif
+  "Folds v into consecutive blocks of length period and returns the vector of positional majority values."
+  [v period]
+  (mapv (fn [position] (positional-majority (take-nth period (drop position v))))
+        (range period)))
+
+(defn ^:no-doc motif-exceptions
+  "Returns a vector of `{:index :expected :actual}` for each index of v whose value differs from
+   the motif value at its position (index mod motif length), in ascending index order."
+  [v motif]
+  (let [period (count motif)]
+    (into []
+          (keep-indexed (fn [index actual]
+                          (let [expected (nth motif (mod index period))]
+                            (when (not= expected actual)
+                              {:index index :expected expected :actual actual}))))
+          v)))
+
+(defn ^:no-doc motif-candidate
+  "Builds the find-repeating-motif result map for v folded at the given period."
+  [v period]
+  (let [motif      (period-motif v period)
+        exceptions (motif-exceptions v motif)]
+    {:length     period
+     :repeats    (quot (count v) period)
+     :motif      motif
+     :exact?     (empty? exceptions)
+     :exceptions exceptions}))
+
+(defn ^:no-doc validate-motif-opts
+  "Throws an illegal argument exception if exception-budget is not a non-negative integer, or if any
+   period is not a positive integer divisor of n."
+  [n {:keys [exception-budget periods]}]
+  (when-not (and (integer? exception-budget) (not (neg? exception-budget)))
+    (throw-illegal-arg (str "find-repeating-motif :exception-budget must be a non-negative integer, got: "
+                            (pr-str exception-budget))))
+  (doseq [period periods]
+    (when-not (and (integer? period) (pos? period) (zero? (mod n period)))
+      (throw-illegal-arg (str "find-repeating-motif :periods must be positive divisors of the collection count "
+                              n ", got: " (pr-str period))))))
+
+(defn find-repeating-motif
+  "Finds the shortest motif which, repeated end to end, reproduces the collection with at most a
+   given number of deviating values.
+
+  For each candidate period L (ascending), the collection is folded into `(count coll)/L` consecutive
+  blocks of L. The candidate motif takes the majority value at each of the L positions (a tie goes to the
+  value found in the earliest block at that position). Every index whose value differs from the motif
+  value at its position is an exception. The first (smallest) L with no more exceptions than the budget
+  is accepted.
+
+  With the default periods, L = `(count coll)` always qualifies with no exceptions, so a collection with
+  no repeating motif is reported as a single repeat of itself.
+
+  - coll: Any seqable (vector, list, string, ...). Values compared with `=`.
+  - opts: Optional map of:
+    - :exception-budget - non-negative integer, maximum number of exceptions accepted. Default 0, exact repeats only.
+    - :periods - seq of candidate period lengths, tried in ascending order. Each must be a positive divisor of
+      `(count coll)`. Default every divisor of `(count coll)`.
+  - returns: nil for nil or empty coll, or when no supplied period qualifies. Otherwise a map of:
+    - :length - motif length L
+    - :repeats - number of times the motif repeats, `(count coll)/L`
+    - :motif - vector of the L motif values
+    - :exact? - true when there are no exceptions
+    - :exceptions - vector of `{:index i :expected motif-value :actual coll-value}`, 0-based index in coll, ascending
+  - throws: illegal argument exception if :exception-budget is not a non-negative integer, or a period is not a
+    positive divisor of `(count coll)`.
+
+eg:
+```clojure
+(find-repeating-motif [:a :b :a :b :a :b])
+  => {:length 2 :repeats 3 :motif [:a :b] :exact? true :exceptions []}
+
+(find-repeating-motif [:a :b :a :b :a :c] {:exception-budget 1})
+  => {:length 2 :repeats 3 :motif [:a :b] :exact? false
+      :exceptions [{:index 5 :expected :b :actual :c}]}
+
+(find-repeating-motif [:a :b :c])
+  => {:length 3 :repeats 1 :motif [:a :b :c] :exact? true :exceptions []}
+
+(find-repeating-motif [:a :b :a :c] {:periods [2]}) => nil
+```
+"
+  ([coll]
+   (find-repeating-motif coll {}))
+
+  ([coll opts]
+   (let [v    (vec coll)
+         n    (count v)
+         opts (merge {:exception-budget 0} opts)
+         {:keys [exception-budget periods]} opts]
+     (validate-motif-opts n opts)
+     (when (pos? n)
+       (let [candidates (if (some? periods) (sort (distinct periods)) (divisors n))]
+         (some (fn [period]
+                 (let [candidate (motif-candidate v period)]
+                   (when (<= (count (:exceptions candidate)) exception-budget)
+                     candidate)))
+               candidates))))))
+
+
+(defn cycle-to-length
+  "Repeats the collection end to end until it is exactly n long, truncating the final repeat as needed.
+
+  - coll: Any seqable (vector, list, string, ...) providing the values to repeat.
+  - n: Non-negative integer, the exact length of the result.
+  - returns: Vector of exactly n values, `(vec (take n (cycle coll)))`. Empty vector when n is 0, even for an empty coll.
+  - throws: illegal argument exception if n is negative or not an integer, or if coll is empty and n is positive
+    (it cannot be made n long).
+
+eg:
+```clojure
+(cycle-to-length [1 2 3] 7) => [1 2 3 1 2 3 1]
+(cycle-to-length [1 2 3] 2) => [1 2]
+(cycle-to-length [] 0) => []
+```
+"
+  [coll n]
+  (when-not (and (integer? n) (not (neg? n)))
+    (throw-illegal-arg (str "cycle-to-length n must be a non-negative integer, got: " (pr-str n))))
+  (when (and (pos? n) (empty? coll))
+    (throw-illegal-arg (str "cycle-to-length cannot make an empty collection " n " long")))
+  (vec (take n (cycle coll))))
 
 ;; =========================== Sequence index functions =================================
 
