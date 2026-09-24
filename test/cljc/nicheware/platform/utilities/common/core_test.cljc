@@ -759,6 +759,68 @@
              (sut/deep-merge {:one 1 :two 2 :nested {:three 3 :nested {:four 4 :five 5}}}
                              {:two 4 :nested {:three 4 :nested {:four 5}}})))))
 
+(defn- thrown-ex
+  "Returns the exception thrown by calling f, or nil if it returns normally."
+  [f]
+  (try
+    (f)
+    nil
+    (catch #?(:clj Exception :cljs :default) ex ex)))
+
+(defn- ex-msg
+  "Exception message on both platforms (ex-message is not in Clojure 1.9)."
+  [ex]
+  #?(:clj (.getMessage ^Throwable ex)
+     :cljs (.-message ex)))
+
+(t/deftest test-merge-disjoint
+  (t/testing "Disjoint maps merge like merge"
+    (t/is (= {:a 1 :b 2} (sut/merge-disjoint [{:a 1} {:b 2}])))
+    (t/is (= {:a 1 :b 2 :c 3} (sut/merge-disjoint [{:a 1} nil {:b 2} {} {:c 3}])))
+    (t/is (= {:a {:x 1}} (sut/merge-disjoint (list {:a {:x 1}}))))
+    (t/is (= {:a 1 :b 2} (sut/merge-disjoint [{:a 1} {:b 2}] (fn [_] (throw (ex-info "unused" {})))))))
+
+  (t/testing "nil and empty inputs"
+    (t/is (= {} (sut/merge-disjoint nil)))
+    (t/is (= {} (sut/merge-disjoint [])))
+    (t/is (= {} (sut/merge-disjoint [nil nil])))
+    (t/is (= {} (sut/merge-disjoint [{} {}]))))
+
+  (t/testing "All colliding keys are reported in the default ex-info"
+    (let [ex (thrown-ex #(sut/merge-disjoint [{:a 1 :b 2} {:b 3} {:a 4 :c 5}]))]
+      (t/is (some? ex))
+      (t/is (= {:colliding-keys #{:a :b}} (ex-data ex)))
+      (t/is (re-find #":a" (ex-msg ex)))
+      (t/is (re-find #":b" (ex-msg ex)))))
+
+  (t/testing "Equal values still collide, and values never appear in the message"
+    (let [ex (thrown-ex #(sut/merge-disjoint [{:k "secret-value"} {:k "secret-value"}]))]
+      (t/is (= {:colliding-keys #{:k}} (ex-data ex)))
+      (t/is (not (re-find #"secret-value" (ex-msg ex))))))
+
+  (t/testing "nil values under the same key still collide"
+    (t/is (= {:colliding-keys #{:k}}
+             (ex-data (thrown-ex #(sut/merge-disjoint [{:k nil} {:k nil}]))))))
+
+  (t/testing "Custom on-collision throwing its own exception"
+    (let [seen (atom nil)
+          ex (thrown-ex #(sut/merge-disjoint [{:a 1 :b 2} {:b 3} {:a 4}]
+                                             (fn [ks]
+                                               (reset! seen ks)
+                                               (throw (ex-info "plug-in clash" {:type ::clash :keys ks})))))]
+      (t/is (= #{:a :b} @seen))
+      (t/is (= "plug-in clash" (ex-msg ex)))
+      (t/is (= {:type ::clash :keys #{:a :b}} (ex-data ex)))))
+
+  (t/testing "Custom on-collision returning normally still throws the default ex-info"
+    (let [ex (thrown-ex #(sut/merge-disjoint [{:a 1} {:a 2}] (constantly {:a :merged-anyway})))]
+      (t/is (= {:colliding-keys #{:a}} (ex-data ex)))))
+
+  (t/testing "Non-map entries are illegal arguments"
+    (t/is #?(:clj (thrown? IllegalArgumentException (sut/merge-disjoint [{:a 1} [:b 2]]))
+             :cljs (thrown? js/Error (sut/merge-disjoint [{:a 1} [:b 2]]))))))
+
+
 
 
 (t/deftest test-index-by
@@ -816,6 +878,142 @@
            (sut/map-all-keys (comp csk/->kebab-case-keyword csk/->camelCaseKeyword) { :services_name ["testme"] :custom_name {:*-:-0 ""}})))
 
     (t/is (nil? (sut/map-all-keys identity nil)))))
+
+
+(t/deftest test-map-all-keys-recurse-sequentials
+  (let [input {"a" [{"b" 1} {"c" [{"d" 2}]}]}]
+    (t/testing "3 arity recursing into sequentials"
+      (t/is (= {:a [{:b 1} {:c [{:d 2}]}]}
+               (sut/map-all-keys keyword input {:recurse-sequentials? true}))))
+
+    (t/testing "2 arity and default opts leave maps inside sequentials alone"
+      (t/is (= {:a [{"b" 1} {"c" [{"d" 2}]}]} (sut/map-all-keys keyword input)))
+      (t/is (= {:a [{"b" 1} {"c" [{"d" 2}]}]} (sut/map-all-keys keyword input {})))
+      (t/is (= {:a [{"b" 1} {"c" [{"d" 2}]}]}
+               (sut/map-all-keys keyword input {:recurse-sequentials? false})))))
+
+  (t/testing "Top-level value may be a sequential or set"
+    (t/is (= [{:a 1} {:b {:c 2}}]
+             (sut/map-all-keys keyword [{"a" 1} {"b" {"c" 2}}] {:recurse-sequentials? true})))
+    (t/is (= #{{:a 1} {:b 2}}
+             (sut/map-all-keys keyword #{{"a" 1} {"b" 2}} {:recurse-sequentials? true}))))
+
+  (t/testing "Sequential of sequential"
+    (t/is (= [[{:a 1}] [[{:b [{:c 3}]}]]]
+             (sut/map-all-keys keyword [[{"a" 1}] [[{"b" [{"c" 3}]}]]] {:recurse-sequentials? true}))))
+
+  (t/testing "Collection types and order preserved"
+    (let [result (sut/map-all-keys keyword
+                                   {"v" [{"x" 1} {"y" 2}]
+                                    "l" (list {"x" 1} {"y" 2})
+                                    "s" (map identity [{"x" 1} {"y" 2}])
+                                    "set" #{{"x" 1}}}
+                                   {:recurse-sequentials? true})]
+      (t/is (vector? (:v result)))
+      (t/is (= [{:x 1} {:y 2}] (:v result)))
+      (t/is (list? (:l result)))
+      (t/is (= [{:x 1} {:y 2}] (:l result)))
+      (t/is (list? (:s result)))
+      (t/is (= [{:x 1} {:y 2}] (:s result)))
+      (t/is (set? (:set result)))
+      (t/is (= #{{:x 1}} (:set result)))))
+
+  (t/testing "nil, empty and non-collection values"
+    (doseq [v [nil {} [] () #{} 1 "s" :k]]
+      (t/is (= v (sut/map-all-keys keyword v {:recurse-sequentials? true})) (pr-str v))))
+
+  (t/testing "identity is a no-op"
+    (doseq [v [{:a [{:b #{{:c 1}}} (list {:d [1 2]})]}
+               [{"a" {"b" [{"c" nil}]}}]
+               #{[{:a 1}]}
+               {}]]
+      (t/is (= v (sut/map-all-keys identity v {:recurse-sequentials? true})) (pr-str v)))))
+
+(t/deftest test-dissoc-all-keys
+  (t/testing "Spec example"
+    (t/is (= {:value {:a 1 :xs [{:b 2} {}]} :removed {:starred 2 :modified-time 1}}
+             (sut/dissoc-all-keys {:a 1 :starred true :xs [{:starred false :b 2} {:modified-time 3}]}
+                                  #{:starred :modified-time}))))
+
+  (t/testing "Nothing removed"
+    (t/is (= {:value {:a 1} :removed {}} (sut/dissoc-all-keys {:a 1} [:b])))
+    (t/is (= {:value {:a 1} :removed {}} (sut/dissoc-all-keys {:a 1} nil)))
+    (t/is (= {:value {:a 1} :removed {}} (sut/dissoc-all-keys {:a 1} []))))
+
+  (t/testing "nil, empty and scalar values"
+    (doseq [v [nil {} [] () #{} 1 "s"]]
+      (t/is (= {:value v :removed {}} (sut/dissoc-all-keys v [:a])) (pr-str v))))
+
+  (t/testing "Does not descend into the value of a removed key"
+    (t/is (= {:value {:b 1} :removed {:a 1}}
+             (sut/dissoc-all-keys {:a {:a {:a 1}} :b 1} [:a]))))
+
+  (t/testing "Sequential of sequential and sets"
+    (t/is (= {:value [[{:b 1}] [[{}]] #{{:c 2}}] :removed {:a 3}}
+             (sut/dissoc-all-keys [[{:a 1 :b 1}] [[{:a 2}]] #{{:a 3 :c 2}}] #{:a}))))
+
+  (t/testing "Collection types and order preserved"
+    (let [{:keys [value]} (sut/dissoc-all-keys {:v [{:x 1 :k 1} {:y 2}]
+                                                :l (list {:x 1} {:y 2 :k 1})
+                                                :s (map identity [{:k 0 :x 1} {:y 2}])
+                                                :set #{{:x 1 :k 2}}}
+                                               [:k])]
+      (t/is (vector? (:v value)))
+      (t/is (= [{:x 1} {:y 2}] (:v value)))
+      (t/is (list? (:l value)))
+      (t/is (= [{:x 1} {:y 2}] (:l value)))
+      (t/is (list? (:s value)))
+      (t/is (= [{:x 1} {:y 2}] (:s value)))
+      (t/is (set? (:set value)))
+      (t/is (= #{{:x 1}} (:set value)))))
+
+  (t/testing "Removed keys are absent at every depth of the result, and counts match the input"
+    (doseq [[v ks] [[{:a 1 :starred true :xs [{:starred false :b 2} {:modified-time 3}]} #{:starred :modified-time}]
+                    [[{:k 1} [{:k 2 :j [{:k 3}]}] {:j {:k 4 :l (list {:k 5})}}] [:k]]
+                    [{:k {:k 1} :m [{:k nil}]} [:k :m]]
+                    [{"k" 1 :k 2} ["k"]]]]
+      (let [key-set (set ks)
+            has-removed-key? #(and (map? %) (some (partial contains? %) key-set))
+            {:keys [value removed]} (sut/dissoc-all-keys v ks)]
+        (t/is (= [] (sut/paths-where has-removed-key? value)) (pr-str v))
+        (t/is (every? pos? (vals removed)))
+        (t/is (every? key-set (keys removed)))))))
+
+(t/deftest test-paths-where
+  (t/testing "Spec example"
+    (t/is (= [[:curves "S"] [:pattern :curve-specs 1]]
+             (sut/paths-where #(and (map? %) (contains? % :versions))
+                              {:curves {"S" {:versions {}}}
+                               :pattern {:curve-specs [{:x 1} {:versions 1}]}}))))
+
+  (t/testing "Root is tested and reported as []"
+    (t/is (= [[]] (sut/paths-where map? {})))
+    (t/is (= [[]] (sut/paths-where nil? nil)))
+    (t/is (= [] (sut/paths-where string? nil)))
+    (t/is (= [[] [:a]] (sut/paths-where map? {:a {}}))))
+
+  (t/testing "Descends into values that matched, pre-order"
+    (t/is (= [[] [:a] [:a :b] [:a :b 0]]
+             (sut/paths-where coll? {:a {:b [{}]}}))))
+
+  (t/testing "Sequential of sequential, lists indexed, sets not descended"
+    (t/is (= [[0] [1 1] [1 2 0]]
+             (sut/paths-where string? ["a" [1 "b" (list "c")] #{"d"}])))
+    (t/is (= [[2]] (sut/paths-where set? ["a" [1] #{"d"}]))))
+
+  (t/testing "Keys are not tested"
+    (t/is (= [[:x]] (sut/paths-where keyword? {:a 1 :x :v}))))
+
+  (t/testing "Every returned path satisfies pred via get-in"
+    (doseq [[pred v] [[number? {:a 1 :b [2 {:c 3 :d [4 [5]]}] :e {:f 6}}]
+                      [map? [{:a {:b [{}]}} [[{}]]]]
+                      [nil? {:a nil :b [nil {:c nil}]}]
+                      [vector? [[[]] {:x [[1]]}]]
+                      [(constantly true) {:a [1 {:b 2}]}]]]
+      (let [paths (sut/paths-where pred v)]
+        (t/is (seq paths) (pr-str v))
+        (t/is (every? #(pred (get-in v %)) paths) (pr-str v))
+        (t/is (= (count paths) (count (distinct paths))))))))
 
 ;; ============================= Vector functions ===================
 

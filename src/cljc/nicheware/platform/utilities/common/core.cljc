@@ -12,9 +12,10 @@ There are groups of functions within common.core that deal with:
 |general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
 |sequence patterns| [[maximal-runs]], [[run-length-encode]], [[run-length-decode]], [[find-repeating-motif]], [[cycle-to-length]]|
 |collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
-|map utility|  [[deep-merge]], [[dissoc-in]], [[index-by]]|
+|map utility|  [[deep-merge]], [[merge-disjoint]], [[dissoc-in]], [[index-by]]|
 |map transform| [[map-values]], [[map-keys]], [[map-all-keys]]|
 |map filtering| [[filter-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
+|nested data| [[dissoc-all-keys]], [[paths-where]]|
 |vector functions| [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]|
 |string functions| [[after]], [[before]], [[before-last]], [[str-to-int]]|
 |cross-platform functions| [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]|
@@ -877,6 +878,62 @@ eg:
     (apply merge-with deep-merge maps)
     (last maps)))
 
+(defn ^:no-doc colliding-keys
+  "Returns the set of keys that occur in more than one of the given maps."
+  [maps]
+  (->> maps
+       (mapcat keys)
+       frequencies
+       (keep (fn [[k n]] (when (> n 1) k)))
+       set))
+
+(defn ^:no-doc default-collision-ex
+  "Builds the default ex-info thrown by [[merge-disjoint]]. Only the keys are included, never the values."
+  [colliding]
+  (ex-info (str "merge-disjoint: keys occur in more than one map: "
+                (pr-str (sort-by pr-str colliding)))
+           {:colliding-keys colliding}))
+
+(defn merge-disjoint
+  "Merges a sequence of maps like `merge`, but only when no key occurs in more than one map.
+
+   Guards against silent \"last one wins\" merging, eg when combining registries contributed by
+   independent plug-ins. A key present in two maps is a collision even when both values are equal.
+   All colliding keys across all the maps are collected before failing, so the error names every one.
+
+   - maps: Sequence of maps to merge. nil entries are ignored; any other non-map entry is an illegal argument.
+   - on-collision: Optional function called with the set of colliding keys. It is expected to throw the
+     caller's own exception. If it returns normally, the default ex-info is thrown anyway: a merged map is
+     never returned when keys collide.
+   - returns: New map containing every entry of every map. `{}` for nil or an empty sequence.
+   - throws: When keys collide (and on-collision does not throw), ex-info with a message naming the keys
+     and data `{:colliding-keys #{...}}`. Values are never included in the exception.
+
+eg:
+```clojure
+(merge-disjoint [{:a 1} nil {:b 2}]) => {:a 1 :b 2}
+(merge-disjoint [])                  => {}
+
+(merge-disjoint [{:a 1 :b 2} {:b 3} {:a 4 :c 5}])
+=> throws ex-info, (ex-data ex) => {:colliding-keys #{:a :b}}
+
+(merge-disjoint [{:a 1} {:a 1}]
+                (fn [ks] (throw (ex-info \"Duplicate plug-in keys\" {:keys ks}))))
+=> throws the caller's ex-info
+```
+"
+  ([maps] (merge-disjoint maps nil))
+  ([maps on-collision]
+   (let [present (remove nil? maps)]
+     (when-not (every? map? present)
+       (throw-illegal-arg "merge-disjoint: every non-nil entry must be a map"))
+     (let [colliding (colliding-keys present)]
+       (when (seq colliding)
+         (when on-collision
+           (on-collision colliding))
+         (throw (default-collision-ex colliding)))
+       (apply merge {} present)))))
+
 (defn index-by
   "Generates a map indexed by the value identified by the key applied to each element in the collection.
    Can be used to convert a vector of maps to a map indexed by a specific key by supplying the
@@ -912,23 +969,70 @@ eg:
                  (assoc modified-map (map-fn k) value))
                {} value-map)))
 
+(defn ^:no-doc rebuild-like
+  "Builds a collection of the same kind as the sequential or set `coll` from the elements `xs`:
+   vectors stay vectors, sets stay sets (same comparator for sorted sets), any other sequential
+   (list, seq, lazy seq) becomes a list in the same order. Any other `coll` is returned unchanged."
+  [coll xs]
+  (cond
+    (vector? coll)     (vec xs)
+    (set? coll)        (into (empty coll) xs)
+    (sequential? coll) (apply list xs)
+    :else              coll))
+
+(defn ^:no-doc map-all-keys-deep
+  "Transforms keys of maps at any depth, including maps inside sequentials and sets."
+  [map-fn value]
+  (cond
+    (map? value) (reduce-kv (fn [modified-map k v]
+                              (assoc modified-map (map-fn k) (map-all-keys-deep map-fn v)))
+                            {} value)
+    (or (sequential? value)
+        (set? value)) (rebuild-like value (map #(map-all-keys-deep map-fn %) value))
+    :else value))
+
 (defn map-all-keys
   "Transforms the keys in the map and nested maps using the given function.
 
-  - fn: Function used to transform the keys. Takes a single argument, the existing key,  returning a new key value.
-  - value-map: Map to be transformed.
-  - returns: New map, with all keys, including keys in nested maps, transformed by fn.
-    Handles nil value-map, returning nil
+  - map-fn: Function used to transform the keys. Takes a single argument, the existing key,  returning a new key value.
+  - value-map: 2 arity argument. Map to be transformed. Only maps nested directly as map values are
+    transformed; maps inside vectors, lists or sets are left alone.
+  - value: 3 arity argument. Value to be transformed. With `:recurse-sequentials? true` it may be a map,
+    sequential, set or any other value.
+  - opts: 3 arity argument, options map:
+      - `:recurse-sequentials?` (default false): when true, keys are transformed in maps at any depth,
+        including maps inside sequential collections and sets. Collection types and order are preserved:
+        vectors stay vectors, lists and seqs become lists in the same order, sets stay sets (elements whose
+        transformed forms become equal will merge). Non-collection values are returned unchanged.
+        When false, identical to the 2 arity.
+  - returns: New map (or collection), with all keys, including keys in nested maps, transformed by map-fn.
+    Handles nil, returning nil
+
+eg:
+```clojure
+(map-all-keys keyword {\"a\" {\"b\" 1} \"c\" [{\"d\" 2}]})
+=> {:a {:b 1} :c [{\"d\" 2}]}
+
+(map-all-keys keyword {\"a\" [{\"b\" 1} {\"c\" [{\"d\" 2}]}]} {:recurse-sequentials? true})
+=> {:a [{:b 1} {:c [{:d 2}]}]}
+
+(map-all-keys keyword '({\"a\" 1} #{{\"b\" 2}}) {:recurse-sequentials? true})
+=> ({:a 1} #{{:b 2}})
+```
 "
-  [map-fn value-map]
-  (if (empty? value-map)
-    value-map
-    (reduce-kv (fn [modified-map k value]
-                 (assoc modified-map (map-fn k)
-                        (if (map? value)
-                          (map-all-keys map-fn value)
-                          value)))
-               {} value-map)))
+  ([map-fn value-map]
+   (if (empty? value-map)
+     value-map
+     (reduce-kv (fn [modified-map k value]
+                  (assoc modified-map (map-fn k)
+                         (if (map? value)
+                           (map-all-keys map-fn value)
+                           value)))
+                {} value-map)))
+  ([map-fn value {:keys [recurse-sequentials?] :or {recurse-sequentials? false}}]
+   (if recurse-sequentials?
+     (map-all-keys-deep map-fn value)
+     (map-all-keys map-fn value))))
 
 (defn map-values
   "Peforms a map over the values of the hash-map, returning a new hashmap with same keys and updated values.
@@ -942,6 +1046,103 @@ eg:
   (reduce-kv (fn [modified-map k value]
                (assoc modified-map k (map-fn value)))
              {} hmap))
+
+;; ==================== Nested data functions ====================
+
+(defn ^:no-doc strip-keys
+  "Removes keys in key-set from maps at any depth of value.
+   Returns `[stripped-value {<key> <count removed>}]`."
+  [key-set value]
+  (cond
+    (map? value)
+    (reduce-kv (fn [[stripped removed] k v]
+                 (if (contains? key-set k)
+                   [(dissoc stripped k) (update removed k (fnil inc 0))]
+                   (let [[stripped-v removed-v] (strip-keys key-set v)]
+                     [(assoc stripped k stripped-v) (merge-with + removed removed-v)])))
+               [value {}]
+               value)
+
+    (or (sequential? value)
+        (set? value))
+    (let [results (map #(strip-keys key-set %) value)]
+      [(rebuild-like value (map first results))
+       (apply merge-with + {} (map second results))])
+
+    :else
+    [value {}]))
+
+(defn dissoc-all-keys
+  "Removes the given keys from every map at every depth of a nested value, counting what was removed.
+
+   Descends into map values, sequential collections and sets. Collection types and order are preserved:
+   vectors stay vectors, lists and seqs become lists in the same order, sets stay sets (elements that become
+   equal once stripped will merge). The value of a removed key is discarded without being descended into,
+   so keys nested inside it are neither removed again nor counted.
+
+   - value: Nested data to strip. Any value; non-collections (including nil) are returned unchanged.
+   - ks: Collection of keys to remove. nil or empty removes nothing.
+   - returns: Map `{:value <stripped value> :removed {<key> <number of maps it was removed from>}}`.
+     `:removed` only contains keys that were actually removed, so it is `{}` when nothing was removed.
+
+eg:
+```clojure
+(dissoc-all-keys {:a 1 :starred true :xs [{:starred false :b 2} {:modified-time 3}]}
+                 #{:starred :modified-time})
+=> {:value {:a 1 :xs [{:b 2} {}]} :removed {:starred 2 :modified-time 1}}
+
+(dissoc-all-keys {:a 1} [:b]) => {:value {:a 1} :removed {}}
+```
+"
+  [value ks]
+  (let [[stripped removed] (strip-keys (set ks) value)]
+    {:value stripped :removed removed}))
+
+(defn ^:no-doc collect-paths
+  "Depth-first pre-order accumulation into acc of the paths below (and including) path where pred holds."
+  [pred path value acc]
+  (let [acc (if (pred value) (conj acc path) acc)
+        descend (fn [acc k v] (collect-paths pred (conj path k) v acc))]
+    (cond
+      (map? value)        (reduce-kv descend acc value)
+      (sequential? value) (reduce-kv descend acc (vec value))
+      :else               acc)))
+
+(defn paths-where
+  "Finds the path of every value within nested data for which the predicate is truthy.
+
+   A path is a vector of map keys and sequential indexes from the root, the same path vocabulary used by
+   Malli error paths. For maps and vectors a returned path can be passed directly to `get-in`
+   (lists and seqs are indexed too, but `get-in` does not support them).
+
+   - pred: Function of one argument, called on the root and on every nested value.
+   - value: Nested data to search. The root itself is tested and, when it matches, reported as path `[]`.
+   - returns: Vector of paths (each a vector), empty when nothing matches.
+
+   Traversal:
+
+   - Map values are descended into with the map key as the path element. Keys themselves are not tested.
+   - Sequential elements are descended into with their index as the path element.
+   - Sets are not descended into (they have no stable index), though a set itself can match.
+   - Descent continues below values that matched, so a match can contain further matches.
+   - Order is depth-first pre-order (a value before its children), map entries in the map's own
+     iteration order and sequential elements by index. Hash map iteration order is not something to
+     rely on, so callers needing a deterministic order should sort the result.
+   - Infinite lazy sequences are not supported.
+
+eg:
+```clojure
+(paths-where #(and (map? %) (contains? % :versions))
+             {:curves  {\"S\" {:versions {}}}
+              :pattern {:curve-specs [{:x 1} {:versions 1}]}})
+=> [[:curves \"S\"] [:pattern :curve-specs 1]]
+
+(paths-where string? [\"a\" [1 \"b\"] #{\"c\"}]) => [[0] [1 1]]
+(paths-where map? {})                         => [[]]
+```
+"
+  [pred value]
+  (collect-paths pred [] value []))
 
 ;; ==================== Map filtering functions ====================
 

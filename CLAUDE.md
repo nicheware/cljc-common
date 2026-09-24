@@ -44,7 +44,9 @@ classpath — the config tests depend on this (see below).
 All namespaces live under `nicheware.platform.utilities.common`:
 
 - `core` — the base namespace; complements `clojure.core` (slicing, collection insert/replace, map
-  transforms, searching, sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
+  transforms (`map-all-keys` optionally recursing into sequentials/sets), `merge-disjoint` (merge that throws
+  on any key collision), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
+  Malli-style paths), searching, sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
   `cycle-to-length`), string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
   `current-time-millis`, `edn-read`). Nearly every other namespace depends on it (notably `deep-merge`).
 - `math` — float/number helpers, plus exact fractions: `round-to-increment`, `to-ratio`, `format-fraction`
