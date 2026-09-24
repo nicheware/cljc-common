@@ -52,6 +52,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
   arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has
   no ratios, so there they operate on doubles. Note the older `roundn`/`div` always return doubles.
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
+  `graphics.color` works on `[R G B A]` 0–255 vectors or packed ARGB ints (normalised via `color-as-rgba`;
+  no CSS-string parsing) and includes WCAG `relative-luminance` / `contrast-ratio`.
 - `version` — in-memory versioning of an "asset map" of the shape
   `{<asset-key> {:current <modified-time> :name <asset-key> :versions {<modified-time> <asset> ...}}}`.
   Each version is a full copy of state; keys are timestamps.

@@ -13,6 +13,7 @@ There are groups of functions and variables within the color namespace that deal
 |rgba, hsla color model conversion| [[rgba-to-hsla]], [[hsla-to-rgba]]|
 |color model keyword functions| [[model-from-to]], [[model-ranges]]|
 |color gradient functions| [[make-color-increment-fn]], [[color-difference-seq]]|
+|luminance and contrast| [[relative-luminance]], [[contrast-ratio]]|
 
 The different color representations that are used by functions include:
 
@@ -22,6 +23,17 @@ The different color representations that are used by functions include:
 |RGB or packed RGB| an RGB color with an alpha channel, packed as a Clojure integer, with each byte representing A, R, G, B. The unpacked values are from 0 to 255|
 |RGB CSS| String hex representation of an RGB color with no alpha channel, as used in CSS color specifications.|
 |HSLA| Hue, Saturation, Lightness, Alpha as a clojure vector ```[H S L A]```.  **Hue** is a degree on the color wheel, 0 to 360.  **Saturation** is a percentage (100 full color),  **Lightness** is percentage of reflecting color (0 is dark, 100 is light),  **Alpha** is 0 to 255.|
+
+Luminance and contrast follow the WCAG 2.x definitions, e.g. to order colors dark to light or to check
+a text/background pair against a contrast floor:
+
+```clojure
+(relative-luminance [255 255 255 255])                 => 1.0
+(sort-by relative-luminance [[255 255 255] [0 0 0] [128 128 128]])
+                                                       => ([0 0 0] [128 128 128] [255 255 255])
+(contrast-ratio [0 0 0 255] 0xFFFFFFFF)                => 21.0
+(>= (contrast-ratio [119 119 119] [255 255 255]) 4.5)  => false
+```
 
 "
   (:require [thi.ng.strf.core :as f]
@@ -383,6 +395,97 @@ The different color representations that are used by functions include:
   (let [inc-fn (make-color-increment-fn start-color end-color)]
     (take count (iterate inc-fn (inc-fn end-color)))))
 
+
+;; =========================== Luminance and contrast =============================
+
+(def ^:no-doc srgb-linear-threshold
+  "sRGB (IEC 61966-2-1) encoded-value threshold below which a channel is on the linear segment."
+  0.04045)
+
+(defn ^:no-doc valid-channel?
+  "True when the value is a number in the 0 to 255 channel range."
+  [value]
+  (and (number? value) (<= 0 value 255)))
+
+(defn ^:no-doc validated-rgba
+  "Normalises a color via [[color-as-rgba]], throwing an illegal argument exception when the color is
+   not a packed int or a ```[R G B]``` / ```[R G B A]``` collection of 0 to 255 numbers.
+
+  - color: packed int ```<alpha><R><G><B>``` or vector ```[R G B]``` / ```[R G B A]```
+  - returns: vector ```[R G B A]```
+"
+  [color]
+  (let [rgba (when (or (coll? color) (integer? color))
+               (color-as-rgba color))]
+    (if (and (sequential? rgba)
+             (= 4 (count rgba))
+             (every? valid-channel? rgba))
+      rgba
+      (common/throw-illegal-arg
+       "Color must be a packed ARGB int or an [R G B] / [R G B A] vector of 0 to 255 values"))))
+
+(defn ^:no-doc linearise-channel
+  "Converts one gamma-encoded sRGB channel value (0 to 255) to linear light (0.0 to 1.0).
+
+  - value: channel value from 0 to 255
+  - returns: double linear channel value from 0.0 to 1.0
+"
+  [value]
+  (let [c (/ (double value) 255.0)]
+    (if (<= c srgb-linear-threshold)
+      (/ c 12.92)
+      (Math/pow (/ (+ c 0.055) 1.055) 2.4))))
+
+(defn relative-luminance
+  "Computes the WCAG 2.x relative luminance of a color: 0.0 for black up to 1.0 for white.
+
+  Each channel is linearised with the sRGB transfer function
+  (```c/12.92``` when ```c <= 0.04045```, else ```((c + 0.055)/1.055)^2.4```, with ```c = v/255```), then
+  ```L = 0.2126 R + 0.7152 G + 0.0722 B```. The WCAG 2.x text quotes a threshold of 0.03928 rather than the
+  sRGB 0.04045; no 8-bit channel value falls between the two, so the result is identical.
+
+  Alpha is ignored: callers should composite a translucent color onto its background first.
+
+  - color: packed int ```<alpha><R><G><B>```, or vector ```[R G B]``` or ```[R G B A]``` of 0 to 255 values.
+    Normalised via [[color-as-rgba]].
+  - returns: double relative luminance from 0.0 to 1.0.
+    Throws an environment specific illegal argument exception for an invalid color.
+
+```clojure
+(relative-luminance [0 0 0 255])        => 0.0
+(relative-luminance [255 0 0 255])      => 0.2126
+(relative-luminance [128 128 128 255])  => 0.2158605001138992
+(relative-luminance 0xFFFFFFFF)         => 1.0
+```
+"
+  [color]
+  (let [[red green blue] (map linearise-channel (validated-rgba color))]
+    (+ (* 0.2126 red)
+       (* 0.7152 green)
+       (* 0.0722 blue))))
+
+(defn contrast-ratio
+  "Computes the WCAG 2.x contrast ratio between two colors: ```(L-lighter + 0.05) / (L-darker + 0.05)```
+  where L is the [[relative-luminance]]. Symmetric in its arguments. Alpha is ignored.
+
+  WCAG AA requires at least 4.5 for normal text (3 for large text); AAA requires 7 (4.5 for large text).
+
+  - color-a: packed int ```<alpha><R><G><B>```, or vector ```[R G B]``` or ```[R G B A]``` of 0 to 255 values.
+  - color-b: second color, in any of the same forms.
+  - returns: double contrast ratio from 1.0 (identical luminance) to 21.0 (black against white).
+    Throws an environment specific illegal argument exception for an invalid color.
+
+```clojure
+(contrast-ratio [0 0 0 255] [255 255 255 255])  => 21.0
+(contrast-ratio [0 0 255] 0xFFFFFFFF)           => 8.592471358428805
+(contrast-ratio [10 20 30] [10 20 30])          => 1.0
+```
+"
+  [color-a color-b]
+  (let [[darker lighter] (sort [(relative-luminance color-a)
+                                (relative-luminance color-b)])]
+    (/ (+ lighter 0.05)
+       (+ darker 0.05))))
 
 ;;(color-as-rgba 4294179323)
 ;;(color-as-rgba 4294043879)

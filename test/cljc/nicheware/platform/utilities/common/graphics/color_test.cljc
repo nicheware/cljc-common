@@ -204,3 +204,88 @@
   (t/testing "Test constant alpah"
     (t/is (= [[20 40 60 255] [30 60 90 255] [40 80 120 255]]
              (sut/color-difference-seq [0 0 0 255] [10 20 30 255] 3)))))
+
+;; =========================== Luminance and contrast =============================
+
+(defn- approx=
+  [tolerance expected actual]
+  (<= (Math/abs (- (double expected) (double actual))) tolerance))
+
+(defn- illegal-arg-thrown?
+  [f]
+  (try (f) false
+       (catch #?(:clj IllegalArgumentException :cljs js/Error) _ true)))
+
+(t/deftest test-relative-luminance
+  (t/testing "Black and white are the end points"
+    (t/is (approx= 1e-12 0.0 (sut/relative-luminance [0 0 0 255])))
+    (t/is (approx= 1e-12 1.0 (sut/relative-luminance [255 255 255 255]))))
+
+  (t/testing "Primaries give their channel coefficients"
+    (t/is (approx= 1e-12 0.2126 (sut/relative-luminance [255 0 0 255])))
+    (t/is (approx= 1e-12 0.7152 (sut/relative-luminance [0 255 0 255])))
+    (t/is (approx= 1e-12 0.0722 (sut/relative-luminance [0 0 255 255]))))
+
+  (t/testing "Mid grey uses the gamma segment"
+    (t/is (approx= 1e-7 0.2158605 (sut/relative-luminance [128 128 128 255]))))
+
+  (t/testing "Low channel values use the linear segment"
+    (t/is (approx= 1e-12 (/ (/ 10 255.0) 12.92) (sut/relative-luminance [10 10 10 255]))))
+
+  (t/testing "Alpha is ignored"
+    (t/is (= (sut/relative-luminance [40 120 200 255])
+             (sut/relative-luminance [40 120 200 0])
+             (sut/relative-luminance [40 120 200]))))
+
+  (t/testing "Packed int and vector forms of the same color agree"
+    (t/is (= (sut/relative-luminance [0x84 0xD4 0xE4 255])
+             (sut/relative-luminance sut/blue-color)))
+    (t/is (= (sut/relative-luminance [255 255 255 255])
+             (sut/relative-luminance sut/white-color))))
+
+  (t/testing "Input vector is not altered"
+    (let [color [12 34 56 78]]
+      (sut/relative-luminance color)
+      (t/is (= [12 34 56 78] color))))
+
+  (t/testing "Strictly increasing across a grey ramp"
+    (let [ramp (map #(sut/relative-luminance [% % % 255]) (range 256))]
+      (t/is (apply < ramp))))
+
+  (t/testing "Invalid colors throw an illegal argument exception"
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance nil)))
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance "#FFFFFF")))
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance [255 255])))
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance [0 0 256 255])))
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance [0 -1 0 255])))
+    (t/is (illegal-arg-thrown? #(sut/relative-luminance [0 :g 0 255])))))
+
+(t/deftest test-contrast-ratio
+  (t/testing "Black on white is the maximum"
+    (t/is (approx= 1e-9 21.0 (sut/contrast-ratio [0 0 0 255] [255 255 255 255]))))
+
+  (t/testing "Same color is the minimum"
+    (t/is (= 1.0 (sut/contrast-ratio [10 20 30 255] [10 20 30 255])))
+    (t/is (= 1.0 (sut/contrast-ratio sut/white-color [255 255 255]))))
+
+  (t/testing "Symmetric in its arguments"
+    (t/is (= (sut/contrast-ratio [200 30 90 255] [20 60 10 255])
+             (sut/contrast-ratio [20 60 10 255] [200 30 90 255]))))
+
+  (t/testing "WCAG reference pairs"
+    ;; #777777 on white is the classic just-fails-AA grey
+    (t/is (approx= 0.01 4.48 (sut/contrast-ratio [0x77 0x77 0x77 255] [255 255 255 255])))
+    (t/is (< (sut/contrast-ratio [0x77 0x77 0x77 255] [255 255 255 255]) 4.5))
+    (t/is (approx= 0.01 8.59 (sut/contrast-ratio [0 0 255 255] [255 255 255 255]))))
+
+  (t/testing "Mixed input forms"
+    (t/is (approx= 1e-9 21.0 (sut/contrast-ratio 0xFF000000 [255 255 255]))))
+
+  (t/testing "Always within [1, 21]"
+    (let [colors (for [r [0 64 128 255] g [0 100 255] b [0 50 255]] [r g b 255])
+          ratios (for [a colors b colors] (sut/contrast-ratio a b))]
+      (t/is (every? #(<= 1.0 % 21.000000001) ratios))))
+
+  (t/testing "Invalid colors throw an illegal argument exception"
+    (t/is (illegal-arg-thrown? #(sut/contrast-ratio nil [0 0 0 255])))
+    (t/is (illegal-arg-thrown? #(sut/contrast-ratio [0 0 0 255] "#000000")))))
