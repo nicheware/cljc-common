@@ -1179,6 +1179,303 @@
                #?(:clj (catch Exception ex (.getMessage ex))
                   :cljs (catch js/Error ex (common/after (ex-message ex) "IllegalArgumentException: "))))))))
 
+;; =========================== Canonical printing functions =============================
+
+(defrecord CanonicalTestRecord [a])
+
+(defn illegal-arg?
+  "True if calling f throws the platform's illegal argument exception."
+  [f]
+  (try
+    (f)
+    false
+    (catch #?(:clj IllegalArgumentException :cljs js/Error) ex
+      #?(:clj true
+         :cljs (boolean (re-find #"IllegalArgumentException" (ex-message ex)))))))
+
+(def big-keys (map #(keyword (str "k" %)) (range 20)))
+
+(def equal-value-groups
+  "Each group holds values that are all `=` to each other, built in different ways."
+  (concat
+   [[{:a 1 :b 2} {:b 2 :a 1} (hash-map :b 2 :a 1) (sorted-map :b 2 :a 1) (into {} [[:b 2] [:a 1]])]
+    [(zipmap big-keys (range 20))
+     (apply array-map (interleave big-keys (range 20)))
+     (apply array-map (interleave (reverse big-keys) (reverse (range 20))))
+     (into (sorted-map) (map vector (reverse big-keys) (reverse (range 20))))]
+    [(set (range 30)) (into #{} (reverse (range 30))) (apply sorted-set (range 30))
+     (into (sorted-set-by >) (range 30))]
+    [#{:a :b} (hash-set :b :a) (sorted-set :b :a)]
+    [[1 2] '(1 2) (range 1 3) (lazy-seq [1 2]) (cons 1 [2]) (seq [1 2]) (map inc [0 1])]
+    [[[:a 1]] (seq {:a 1}) [(first {:a 1})]]
+    [[] '() (range 0) (lazy-seq nil)]
+    [1 (int 1) #?(:clj (short 1)) #?(:clj (byte 1)) #?(:clj 1N) #?(:clj (biginteger 1))]
+    [(with-meta [1 2] {:m 1}) [1 2]]
+    [{(with-meta 'a {:m 1}) (with-meta {:x 1} {:m 2})} {'a {:x 1}}]
+    [0.0 -0.0]]
+   #?(:clj
+      [[1.0M 1.00M 1.000M]
+       [100M 100.0M 1E+2M]
+       [1.0 (float 1.0)]
+       [1/2 (/ 2 4)]])))
+
+(def distinct-value-groups
+  "Each group holds values that are pairwise not `=`, and must print differently."
+  (concat
+   [["a" :a 'a]
+    [#{1 2} [1 2] {1 2}]
+    [{} [] #{}]
+    [nil "nil"]
+    [true "true"]
+    [:a :b/a :a/b]
+    [{:a 1} {:a "1"} {"a" 1}]
+    [[1 [2]] [[1] 2] [1 2]]]
+   #?(:clj
+      [[1/2 0.5]
+       [1 1.0 1M]
+       [1.0 1.0M]
+       [\a "a"]
+       [0.1 (float 0.1)]])))
+
+(t/deftest test-canonical-edn-str-equal-values
+  (t/testing "Values that are = print identically"
+    (doseq [group equal-value-groups
+            :let [group (remove nil? group)]]
+      (t/is (apply = group) (str "test data not all = " (pr-str group)))
+      (t/is (apply = (map sut/canonical-edn-str group)) (pr-str group)))))
+
+(t/deftest test-canonical-edn-str-distinct-values
+  (t/testing "Values that are not = print differently"
+    (doseq [group distinct-value-groups]
+      (t/is (apply distinct? group) (str "test data not distinct " (pr-str group)))
+      (t/is (apply distinct? (map sut/canonical-edn-str group)) (pr-str group)))))
+
+(t/deftest test-canonical-edn-str-exact
+  (t/testing "Nested value: keys sorted by canonical string, nil key as \"nil\""
+    (t/is (= #?(:clj  "{:a #{:y :z} :b [1 2/3 \"x\"] nil 1}"
+                :cljs "{:a #{:y :z} :b [1 0.6666666666666666 \"x\"] nil 1}")
+             (sut/canonical-edn-str {:b [1 #?(:clj 2/3 :cljs (/ 2 3)) "x"] :a #{:z :y} nil 1}))))
+
+  (t/testing "Scalars"
+    (t/are [expected value] (= expected (sut/canonical-edn-str value))
+      "nil"            nil
+      "true"           true
+      "false"          false
+      "\"a\\\"b\\n\""  "a\"b\n"
+      ":a"             :a
+      ":ns/a"          :ns/a
+      "ns/a"           'ns/a
+      "42"             42
+      "-7"             -7
+      "1.5"            1.5
+      "[]"             []
+      "{}"             {}
+      "#{}"            #{}))
+
+  (t/testing "Nested collections, sequentials as vectors, single spaces and no commas"
+    (t/is (= "{:a [1 [2 3] #{4}] :b {:c nil}}"
+             (sut/canonical-edn-str {:b {:c nil} :a (list 1 (range 2 4) #{4})}))))
+
+  #?(:clj
+     (t/testing "JVM number formatting"
+       (t/are [expected value] (= expected (sut/canonical-edn-str value))
+         "[1 1 1.0 1M]"         '(1 1N 1.0 1.0M)
+         "123456789012345678901234567890" 123456789012345678901234567890N
+         "2/3"                  2/3
+         "-1/2"                 -1/2
+         "0.1"                  0.1
+         "1.0E10"               1.0E10
+         "0.0"                  -0.0
+         "1.0"                  (float 1.0)
+         "1.5M"                 1.50M
+         "1E+2M"                100M
+         "0M"                   0.000M
+         "\\a"                  \a
+         "\\newline"            \newline)))
+
+  #?(:cljs
+     (t/testing "ClojureScript number formatting: integral doubles have no decimal point"
+       (t/are [expected value] (= expected (sut/canonical-edn-str value))
+         "1"    1.0
+         "0.1"  0.1
+         "0"    -0
+         "1e+21" 1e21))))
+
+(t/deftest test-canonical-edn-str-inst-uuid
+  (t/testing "Instants are UTC with millisecond precision"
+    (t/are [expected value] (= expected (sut/canonical-edn-str value))
+      "#inst \"2026-08-27T09:30:00.000Z\"" #inst "2026-08-27T09:30:00.000Z"
+      "#inst \"2026-08-27T09:30:00.000Z\"" #inst "2026-08-27T19:30:00.000+10:00"
+      "#inst \"1970-01-01T00:00:00.007Z\"" #?(:clj (java.util.Date. 7) :cljs (js/Date. 7))
+      "#inst \"1600-02-03T04:05:06.789Z\"" #inst "1600-02-03T04:05:06.789Z"))
+
+  #?(:clj
+     (t/testing "java.time.Instant is truncated to milliseconds"
+       (t/is (= "#inst \"2026-08-27T09:30:00.123Z\""
+                (sut/canonical-edn-str (java.time.Instant/parse "2026-08-27T09:30:00.123456789Z"))))))
+
+  (t/testing "Instants outside years 0000-9999 are illegal"
+    (t/is (illegal-arg? #(sut/canonical-edn-str #?(:clj (java.util.Date. 253402300800000)
+                                                   :cljs (js/Date. 253402300800000))))))
+
+  (t/testing "UUIDs are lower case"
+    (t/is (= "#uuid \"abcdef00-1234-4000-8000-00000000000a\""
+             (sut/canonical-edn-str #uuid "ABCDEF00-1234-4000-8000-00000000000A")
+             (sut/canonical-edn-str #uuid "abcdef00-1234-4000-8000-00000000000a")))))
+
+(def canonical-sample
+  {:name "Bargello \"Ocean\"\n\ttabs"
+   :tags #{:a :b/c 'sym 'ns/sym}
+   :rows [[1 2 3] '(4 5) []]
+   :flags {true false nil "nil"}
+   :ratio-ish 1.5
+   :when #inst "2026-08-27T09:30:00.000Z"
+   :id #uuid "abcdef00-1234-4000-8000-00000000000a"})
+
+(t/deftest test-canonical-edn-str-hostile-print-vars
+  (t/testing "print vars bound to hostile values have no effect"
+    (let [value (assoc canonical-sample :meta (with-meta {:ns/a 1 :ns/b 2} {:m 1}))
+          expected (sut/canonical-edn-str value)]
+      (t/is (= expected
+               (binding [*print-length* 1
+                         *print-level* 1
+                         *print-meta* true
+                         *print-readably* nil
+                         *print-dup* true
+                         *print-namespace-maps* true]
+                 (sut/canonical-edn-str value))))
+      (t/is (re-find #":meta \{:ns/a 1 :ns/b 2\}" expected))))
+
+  #?(:clj
+     (t/testing "JVM default time zone and locale have no effect"
+       (let [value (assoc canonical-sample :d 1.5 :big 1.25M)
+             expected (sut/canonical-edn-str value)
+             old-tz (java.util.TimeZone/getDefault)
+             old-locale (java.util.Locale/getDefault)]
+         (try
+           (java.util.TimeZone/setDefault (java.util.TimeZone/getTimeZone "Australia/Sydney"))
+           (java.util.Locale/setDefault (java.util.Locale. "de" "DE"))
+           (t/is (= expected (sut/canonical-edn-str value)))
+           (finally
+             (java.util.TimeZone/setDefault old-tz)
+             (java.util.Locale/setDefault old-locale)))))))
+
+(t/deftest test-canonical-edn-str-round-trip
+  (t/testing "Canonical string reads back as an = value"
+    (t/is (= canonical-sample (sut/edn-read (sut/canonical-edn-str canonical-sample)))))
+
+  #?(:clj
+     (t/testing "JVM-only numbers and characters round trip"
+       (let [value {:r 2/3 :m 1.25M :e 100M :big 12345678901234567890N :d 1.0E10 :c [\a \newline]}]
+         (t/is (= value (sut/edn-read (sut/canonical-edn-str value))))))))
+
+(t/deftest test-canonical-edn-str-illegal
+  (t/testing "Unsupported values throw illegal argument"
+    (doseq [value [#?(:clj Double/NaN :cljs js/NaN)
+                   #?(:clj Double/POSITIVE_INFINITY :cljs js/Infinity)
+                   #?(:clj Double/NEGATIVE_INFINITY :cljs (- js/Infinity))
+                   [1 {:a #?(:clj Double/NaN :cljs js/NaN)}]
+                   inc
+                   (fn [] 1)
+                   (atom 1)
+                   (->CanonicalTestRecord 1)
+                   {:nested [(->CanonicalTestRecord 1)]}
+                   #?(:clj (Object.) :cljs (js-obj))
+                   #?(:clj (java.util.HashMap.) :cljs (array 1 2))]]
+      (t/is (illegal-arg? #(sut/canonical-edn-str value)) (str "expected illegal: " (type value)))))
+
+  #?(:clj
+     (t/testing "Error message names the type, not the value"
+       (t/is (= "canonical-edn-str: unsupported type: clojure.lang.Atom"
+                (try (sut/canonical-edn-str (atom "secret"))
+                     (catch IllegalArgumentException ex (.getMessage ex))))))))
+
+;; =========================== Slug and digest functions =============================
+
+(t/deftest test-truncate-on-boundary
+  (t/testing "Truncation at separator boundaries"
+    (t/are [expected s max-length separator] (= expected (sut/truncate-on-boundary s max-length separator))
+      "bargello-bag"   "bargello-bag-ocean" 14 "-"
+      "bargello-bag"   "bargello-bag-ocean" 12 "-"
+      "bargello"       "bargello-bag-ocean" 11 "-"
+      "bargello"       "bargello--bag"      10 "-"
+      "abc"            "abc"                5  "-"
+      "abc"            "abc"                3  "-"
+      "abcd"           "abcdefgh"           4  "-"
+      "bargello"       "bargello"           8  "-"
+      ""               "abc"                0  "-"
+      "-ab"            "-abcdef"            3  "-"
+      "one--two"       "one--two--three"    10 "--"
+      nil              nil                  4  "-"))
+
+  (t/testing "Invalid arguments"
+    (t/is (illegal-arg? #(sut/truncate-on-boundary "abc" -1 "-")))
+    (t/is (illegal-arg? #(sut/truncate-on-boundary "abc" 1.5 "-")))
+    (t/is (illegal-arg? #(sut/truncate-on-boundary "abc" nil "-")))
+    (t/is (illegal-arg? #(sut/truncate-on-boundary "abc" 2 "")))
+    (t/is (illegal-arg? #(sut/truncate-on-boundary "abc" 2 nil)))
+    (t/is (illegal-arg? #(sut/truncate-on-boundary :abc 2 "-")))))
+
+(t/deftest test-slugify
+  (t/testing "Default slugs"
+    (t/are [expected s] (= expected (sut/slugify s))
+      "bargello-bag-3-ocean-sunset" "Bargello Bag #3 — Ocean/Sunset"
+      "cafe-waves"                  "  Café  Waves  "
+      ""                            "水面"
+      ""                            ""
+      ""                            "--- ... ---"
+      "stra-e"                      "Straße"
+      "title"                       "TITLE"
+      "istanbul"                    "İstanbul"
+      "angstrom-1"                  "Ångström ①"
+      "a-b"                         ".a..b."
+      nil                           nil))
+
+  (t/testing "Options"
+    (t/is (= "cafe_waves" (sut/slugify "Café Waves" {:separator "_"})))
+    (t/is (= "bargello-bag-3" (sut/slugify "Bargello Bag #3 — Ocean/Sunset" {:max-length 14})))
+    (t/is (= "bargello" (sut/slugify "Bargello Bag" {:max-length 9})))
+    (t/is (= "bargello__bag" (sut/slugify "Bargello Bag Ocean" {:separator "__" :max-length 14})))
+    (t/is (= "abcd" (sut/slugify "abcdefgh" {:max-length 4}))))
+
+  (t/testing "Invalid arguments"
+    (t/is (illegal-arg? #(sut/slugify "abc" {:separator ""})))
+    (t/is (illegal-arg? #(sut/slugify "abc" {:max-length -1})))
+    (t/is (illegal-arg? #(sut/slugify 42))))
+
+  #?(:clj
+     (t/testing "Default locale has no effect (Turkish dotless i)"
+       (let [old-locale (java.util.Locale/getDefault)]
+         (try
+           (java.util.Locale/setDefault (java.util.Locale. "tr" "TR"))
+           (t/is (= "title" (sut/slugify "TITLE")))
+           (finally
+             (java.util.Locale/setDefault old-locale)))))))
+
+#?(:clj
+   (t/deftest test-sha256-hex
+     (t/testing "Known digests"
+       (t/is (= "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (sut/sha256-hex "")))
+       (t/is (= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" (sut/sha256-hex "abc"))))
+
+     (t/testing "Strings are hashed as UTF-8, same as their bytes"
+       (let [s "Café 水面 — Ocean"]
+         (t/is (= (sut/sha256-hex (.getBytes s "UTF-8")) (sut/sha256-hex s)))
+         (t/is (not= (sut/sha256-hex (.getBytes s "UTF-16")) (sut/sha256-hex s)))
+         (t/is (re-matches #"[0-9a-f]{64}" (sut/sha256-hex s)))))
+
+     (t/testing "Digest of canonical EDN is independent of map construction order"
+       (t/is (= (sut/sha256-hex (sut/canonical-edn-str (zipmap big-keys (range 20))))
+                (sut/sha256-hex (sut/canonical-edn-str (apply array-map (interleave (reverse big-keys)
+                                                                                    (reverse (range 20))))))))
+       (t/is (= (sut/sha256-hex (sut/canonical-edn-str {:a [1 2] :b #{1 2}}))
+                (sut/sha256-hex (sut/canonical-edn-str (sorted-map :b (sorted-set 2 1) :a '(1 2)))))))
+
+     (t/testing "Invalid data"
+       (t/is (illegal-arg? #(sut/sha256-hex nil)))
+       (t/is (illegal-arg? #(sut/sha256-hex 42)))
+       (t/is (illegal-arg? #(sut/sha256-hex [1 2]))))))
+
 ;; ============ Scratch ===============
 
 (comment

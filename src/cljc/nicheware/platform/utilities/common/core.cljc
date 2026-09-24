@@ -19,6 +19,8 @@ There are groups of functions within common.core that deal with:
 |vector functions| [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]|
 |string functions| [[after]], [[before]], [[before-last]], [[str-to-int]]|
 |cross-platform functions| [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]|
+|canonical printing| [[canonical-edn-str]]|
+|slugs & digests| [[slugify]], [[truncate-on-boundary]], [[sha256-hex]] (Clojure only)|
 |function composition| [[compose-fns]]|
 |exceptions| [[throw-illegal-arg]]|
 |threading macros| [[cond-t]]|
@@ -1451,6 +1453,350 @@ eg:
   [str]
   #?(:clj (edn/read-string str)
      :cljs (reader/read-string str)))
+
+;; =========================== Canonical printing functions =============================
+
+(defn ^:no-doc type-description
+  "Returns a short name for the type of v, for use in error messages. Never includes the value itself."
+  [v]
+  #?(:clj  (.getName (class v))
+     :cljs (let [t (type v)]
+             (or (when t (.-cljs$lang$ctorStr t))
+                 (goog/typeOf v)))))
+
+(defn ^:no-doc unsupported-value
+  "Throws an illegal argument exception naming the type of an unsupported value (but not the value)."
+  [reason v]
+  (throw-illegal-arg (str "canonical-edn-str: " reason ": " (type-description v))))
+
+(defn ^:no-doc zero-pad
+  "Left pads the decimal representation of the non-negative integer n with zeros to width characters."
+  [n width]
+  (let [digits (str n)]
+    (str (apply str (repeat (- width (count digits)) "0")) digits)))
+
+(defn ^:no-doc finite-number?
+  "True if the floating point number n is neither NaN nor infinite."
+  [n]
+  #?(:clj  (not (or (Double/isNaN n) (Double/isInfinite n)))
+     :cljs (js/isFinite n)))
+
+(defn ^:no-doc canonical-double
+  "Canonical string for a finite floating point number. -0.0 is normalised to 0.0 (they are `=`).
+   Uses the platform's `str`, which is locale independent: Double.toString on the JVM, Number.toString in JS."
+  [d]
+  (when-not (finite-number? d)
+    (throw-illegal-arg "canonical-edn-str: NaN and infinite numbers are not supported"))
+  (str (if (zero? d) 0.0 d)))
+
+#?(:clj
+   (defn ^:no-doc canonical-bigdec
+     "Canonical string for a BigDecimal. Clojure `=` ignores scale (`(= 1.0M 1.00M)`), so trailing
+      zeros are stripped and the result printed with BigDecimal.toString and an `M` suffix."
+     [^java.math.BigDecimal bd]
+     (str (.stripTrailingZeros bd) "M")))
+
+(defn ^:no-doc canonical-number
+  "Canonical string for any supported number. See [[canonical-edn-str]] for the rules."
+  [n]
+  #?(:clj  (cond
+             (integer? n)                              (str n)
+             (ratio? n)                                (str n)
+             (decimal? n)                              (canonical-bigdec n)
+             (or (instance? Double n) (instance? Float n)) (canonical-double (double n))
+             :else                                     (unsupported-value "unsupported number type" n))
+     :cljs (canonical-double n)))
+
+(defn ^:no-doc utc-fields
+  "Returns `[year month day hour minute second millis]` in UTC for the given inst."
+  [inst]
+  (let [ms (inst-ms inst)]
+    #?(:clj  (let [t (.atOffset (java.time.Instant/ofEpochMilli ms) java.time.ZoneOffset/UTC)]
+               [(.getYear t) (.getMonthValue t) (.getDayOfMonth t)
+                (.getHour t) (.getMinute t) (.getSecond t) (quot (.getNano t) 1000000)])
+       :cljs (let [d (js/Date. ms)]
+               (when (js/isNaN ms)
+                 (throw-illegal-arg "canonical-edn-str: invalid Date"))
+               [(.getUTCFullYear d) (inc (.getUTCMonth d)) (.getUTCDate d)
+                (.getUTCHours d) (.getUTCMinutes d) (.getUTCSeconds d) (.getUTCMilliseconds d)]))))
+
+(defn ^:no-doc canonical-inst
+  "Canonical `#inst` string for an instant: always UTC and millisecond precision.
+   Formatted explicitly from the UTC fields rather than via any platform printer or formatter."
+  [inst]
+  (let [[year month day hour minute sec millis] (utc-fields inst)]
+    (when-not (<= 0 year 9999)
+      (throw-illegal-arg "canonical-edn-str: instant year outside 0000-9999"))
+    (str "#inst \""
+         (zero-pad year 4) "-" (zero-pad month 2) "-" (zero-pad day 2)
+         "T" (zero-pad hour 2) ":" (zero-pad minute 2) ":" (zero-pad sec 2)
+         "." (zero-pad millis 3) "Z\"")))
+
+(declare canonical-edn*)
+
+(defn ^:no-doc canonical-elements
+  "Canonical strings for each element of coll, sorted when `sorted?` is true, joined by single spaces."
+  [coll sorted?]
+  (let [strs (map canonical-edn* coll)]
+    (str/join " " (if sorted? (sort strs) strs))))
+
+(defn ^:no-doc canonical-map
+  "Canonical `{k v ...}` string. Entries are sorted by the canonical key string, with the canonical value
+   string as a tie-break so the output never depends on iteration order."
+  [m]
+  (let [entries (->> m
+                     (map (fn [[k v]] [(canonical-edn* k) (canonical-edn* v)]))
+                     sort
+                     (map (fn [[k v]] (str k " " v))))]
+    (str "{" (str/join " " entries) "}")))
+
+(defn ^:no-doc canonical-edn*
+  "Recursive worker for [[canonical-edn-str]]; assumes the print vars have already been bound."
+  [v]
+  (cond
+    (nil? v)        "nil"
+    (boolean? v)    (str v)
+    (string? v)     (pr-str v)
+    (char? v)       (pr-str v)
+    (keyword? v)    (str v)
+    (symbol? v)     (str v)
+    (number? v)     (canonical-number v)
+    (inst? v)       (canonical-inst v)
+    (uuid? v)       (str "#uuid \"" (str/lower-case (str v)) "\"")
+    (record? v)     (unsupported-value "records are not supported" v)
+    (map? v)        (canonical-map v)
+    (set? v)        (str "#{" (canonical-elements v true) "}")
+    (sequential? v) (str "[" (canonical-elements v false) "]")
+    :else           (unsupported-value "unsupported type" v)))
+
+(defn canonical-edn-str
+  "Prints an EDN value as a canonical string, suitable as the input to a content digest (eg SHA-256).
+
+   The guarantee: two values that are `=` produce the identical string, independent of hash map/set
+   iteration order, metadata, JVM or locale defaults, and the `*print-...*` vars. Where values are not `=`
+   the strings differ wherever practical; in particular a rational never prints as a double.
+
+   - value: EDN data to print (see rules below).
+   - returns: canonical EDN string, readable by [[edn-read]].
+   - throws: IllegalArgumentException (see [[throw-illegal-arg]]) for NaN or infinite numbers, records,
+     instants outside the years 0000-9999, and any unsupported type (functions, atoms, tagged literals,
+     Java/JS objects, ...). The message names the type, never the value.
+
+   Rules:
+
+   - nil, booleans, keywords and symbols (with namespace) print as EDN. Metadata is ignored.
+   - Strings and characters print as readable EDN literals with escapes.
+     In ClojureScript characters are strings, so print as strings.
+   - Integers of every type (Long, Integer, Short, Byte, BigInt, BigInteger) print as plain digits with no
+     `N` suffix, since `(= 1 1N)`. Ratios print as `n/d`.
+   - Doubles/floats must be finite. They print with the platform `str` (JVM Double.toString: `1.0`, `0.1`,
+     `1.0E10`; floats are widened to double first). `-0.0` prints as `0.0`.
+   - BigDecimals print with an `M` suffix, with trailing zeros stripped since `(= 1.0M 1.00M)`:
+     `1.50M` => `1.5M`, `100M` => `1E+2M`.
+   - Maps print as `{k1 v1 k2 v2}`, entries sorted by the canonical string of the key (plain string compare).
+     Sorted maps are treated as any other map; records are rejected as they are not `=` to a plain map
+     with the same entries, yet would print identically.
+   - Sets print as `#{e1 e2}`, elements sorted by their canonical strings.
+   - All sequential collections (vectors, lists, seqs, lazy seqs, ranges, map entries...) print as vectors
+     `[e1 e2]`, since `(= [1 2] '(1 2))`. Infinite sequences never return.
+   - Instants (`java.util.Date`, `java.time.Instant`; `js/Date`) print as
+     `#inst \"yyyy-MM-ddTHH:mm:ss.SSSZ\"`, always UTC and truncated to millisecond precision.
+     Dates use the proleptic Gregorian (ISO-8601) calendar on both platforms. Clojure's JVM `#inst` reader
+     uses the Julian calendar before 1582-10-15, so such early instants do not read back as `=` on the JVM.
+   - UUIDs print as `#uuid \"...\"` in lower case.
+
+   Platform differences: ClojureScript numbers are all JS doubles, printed with Number.toString, so
+   integral values have no decimal point (`1.0` prints as `1` in ClojureScript but `1.0` on the JVM), and
+   there are no ratios or BigDecimals. Digests of values containing doubles are therefore platform specific.
+   ClojureScript UUIDs preserve the case they were created with (and `=` is case-sensitive there), but
+   are always printed lower case.
+
+eg:
+```clojure
+(canonical-edn-str {:b [1 2/3 \"x\"] :a #{:z :y} nil 1})
+=> \"{:a #{:y :z} :b [1 2/3 \\\"x\\\"] nil 1}\"
+
+(canonical-edn-str '(1 1N 1.0 1.0M))                         => \"[1 1 1.0 1M]\"
+(canonical-edn-str #inst \"2026-08-27T19:30:00.000+10:00\")  => \"#inst \\\"2026-08-27T09:30:00.000Z\\\"\"
+(canonical-edn-str (atom 1))                                 => throws IllegalArgumentException
+```
+"
+  [value]
+  (binding [*print-readably* true
+            *print-meta*     false
+            *print-length*   nil
+            *print-level*    nil
+            #?@(:clj [*print-dup* false
+                      *print-namespace-maps* false])]
+    (canonical-edn* value)))
+
+;; =========================== Slug and digest functions =============================
+
+(defn ^:no-doc validate-separator
+  "Throws unless separator is a non-empty string."
+  [fn-name separator]
+  (when-not (and (string? separator) (seq separator))
+    (throw-illegal-arg (str fn-name ": separator must be a non-empty string"))))
+
+(defn ^:no-doc trim-trailing-separators
+  "Removes every trailing occurrence of separator from s."
+  [s separator]
+  (if (str/ends-with? s separator)
+    (recur (subs s 0 (- (count s) (count separator))) separator)
+    s))
+
+(defn ^:no-doc trim-separators
+  "Removes every leading and trailing occurrence of separator from s."
+  [s separator]
+  (loop [trimmed (trim-trailing-separators s separator)]
+    (if (str/starts-with? trimmed separator)
+      (recur (subs trimmed (count separator)))
+      trimmed)))
+
+(defn truncate-on-boundary
+  "Shortens a string to at most max-length characters, preferring to cut just before a separator
+   so that words are not split.
+
+   The result is the longest prefix of s, of length <= max-length, that ends just before an occurrence of
+   separator, with any trailing separators removed. If there is no such boundary (or it would leave an
+   empty string), s is hard-cut to exactly max-length characters.
+
+   - s: string to truncate. nil returns nil.
+   - max-length: maximum length of the result, a non-negative integer.
+   - separator: non-empty string marking the boundaries at which s may be cut.
+   - returns: s unchanged if `(count s) <= max-length`, otherwise the truncated string.
+   - throws: IllegalArgumentException for a non-string s, invalid max-length or invalid separator.
+
+eg:
+```clojure
+(truncate-on-boundary \"bargello-bag-ocean\" 14 \"-\") => \"bargello-bag\"
+(truncate-on-boundary \"bargello--bag\" 10 \"-\")     => \"bargello\"
+(truncate-on-boundary \"abc\" 5 \"-\")                => \"abc\"
+(truncate-on-boundary \"abcdefgh\" 4 \"-\")           => \"abcd\"
+(truncate-on-boundary nil 4 \"-\")                  => nil
+```
+"
+  [s max-length separator]
+  (when-not (and (integer? max-length) (not (neg? max-length)))
+    (throw-illegal-arg "truncate-on-boundary: max-length must be a non-negative integer"))
+  (validate-separator "truncate-on-boundary" separator)
+  (when-not (or (nil? s) (string? s))
+    (throw-illegal-arg "truncate-on-boundary: s must be a string or nil"))
+  (cond
+    (nil? s)                  nil
+    (<= (count s) max-length) s
+    :else (let [boundary (str/last-index-of s separator max-length)
+                prefix   (when boundary
+                           (trim-trailing-separators (subs s 0 boundary) separator))]
+            (if (seq prefix)
+              prefix
+              (subs s 0 max-length)))))
+
+(defn ^:no-doc strip-diacritics
+  "Unicode NFKD normalises s then removes all combining marks (Unicode category M)."
+  [s]
+  #?(:clj  (-> (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFKD)
+               (str/replace #"\p{M}+" ""))
+     :cljs (-> (.normalize s "NFKD")
+               (.replace (js/RegExp. "\\p{M}+" "gu") ""))))
+
+(defn ^:no-doc lower-case-root
+  "Lower cases s independently of the default locale."
+  [s]
+  #?(:clj  (.toLowerCase ^String s java.util.Locale/ROOT)
+     :cljs (.toLowerCase s)))
+
+(defn slugify
+  "Converts free text into a deterministic slug of `[a-z0-9]` runs joined by a separator, suitable for
+   file names and object-store keys. The result does not depend on the default locale.
+
+   Steps:
+
+   1. Unicode NFKD normalisation, then all combining marks are removed (`é` => `e`).
+   2. Lower case, locale independently (so `I` => `i` even in a Turkish locale).
+   3. Every maximal run of characters outside `[a-z0-9]` becomes one separator, and leading and trailing
+      separators are removed.
+   4. If `:max-length` is given, the slug is shortened with [[truncate-on-boundary]] and re-trimmed.
+
+   Characters with no ASCII decomposition are treated as separators, so a string with no ASCII letters or
+   digits returns `\"\"`: the caller decides the fallback. Note `ß` has no NFKD decomposition, so
+   `\"Straße\"` => `\"stra-e\"`.
+
+   ClojureScript requires a JS engine supporting `String.prototype.normalize` and Unicode property escapes
+   in RegExp (`\\p{M}` with the `u` flag): ES2018, eg Node 10+ and all current browsers. For the inputs
+   tested the output is identical on the JVM and in ClojureScript.
+
+   - s: string to slugify. nil returns nil.
+   - opts: optional map:
+     - :separator: non-empty string placed between runs, default `\"-\"`. It should not contain `[a-z0-9]`.
+     - :max-length: optional non-negative integer maximum length of the slug, default nil (unlimited).
+   - returns: the slug, possibly `\"\"`.
+   - throws: IllegalArgumentException for a non-string s or invalid opts.
+
+eg:
+```clojure
+(slugify \"Bargello Bag #3 — Ocean/Sunset\")                 => \"bargello-bag-3-ocean-sunset\"
+(slugify \"  Café  Waves  \")                                => \"cafe-waves\"
+(slugify \"Bargello Bag #3 — Ocean/Sunset\" {:max-length 14}) => \"bargello-bag-3\"
+(slugify \"Café Waves\" {:separator \"_\"})                    => \"cafe_waves\"
+(slugify \"水面\")                                           => \"\"
+```
+"
+  ([s] (slugify s nil))
+  ([s {:keys [separator max-length] :or {separator "-"}}]
+   (validate-separator "slugify" separator)
+   (when-not (or (nil? s) (string? s))
+     (throw-illegal-arg "slugify: s must be a string or nil"))
+   (when s
+     (let [slug (-> s
+                    strip-diacritics
+                    lower-case-root
+                    (str/replace #"[^a-z0-9]+" (constantly separator))
+                    (trim-separators separator))]
+       (if max-length
+         (-> slug
+             (truncate-on-boundary max-length separator)
+             (trim-separators separator))
+         slug)))))
+
+#?(:clj
+   (defn ^:no-doc bytes->hex
+     "Lower-case hex string of a byte array, two characters per byte. Locale independent."
+     [^bytes data]
+     (let [digits "0123456789abcdef"]
+       (->> data
+            (mapcat (fn [b]
+                      (let [v (bit-and (int b) 0xff)]
+                        [(nth digits (bit-shift-right v 4)) (nth digits (bit-and v 0x0f))])))
+            (apply str)))))
+
+#?(:clj
+   (defn sha256-hex
+     "SHA-256 digest of a string or byte array, as lower-case hex. Clojure (JVM) only.
+
+      Not provided in ClojureScript: there is no synchronous SHA-256 there, as the WebCrypto
+      `crypto.subtle.digest` API is asynchronous.
+
+      - data: String (encoded as UTF-8 before hashing) or byte array.
+      - returns: 64 character lower-case hex string.
+      - throws: IllegalArgumentException for any other type (including nil).
+
+eg:
+```clojure
+(sha256-hex \"abc\")                   => \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"
+(sha256-hex (.getBytes \"abc\" \"UTF-8\")) => \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"
+(sha256-hex (canonical-edn-str config)) => digest independent of map ordering
+```
+"
+     [data]
+     (let [^bytes data-bytes (cond
+                               (string? data) (.getBytes ^String data java.nio.charset.StandardCharsets/UTF_8)
+                               (bytes? data)  data
+                               :else (throw-illegal-arg (str "sha256-hex: data must be a String or byte array, not "
+                                                             (if (nil? data) "nil" (type-description data)))))]
+       (-> (java.security.MessageDigest/getInstance "SHA-256")
+           (.digest data-bytes)
+           bytes->hex))))
 
 ;; ============================== Macros =================================
 

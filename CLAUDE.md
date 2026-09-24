@@ -48,7 +48,11 @@ All namespaces live under `nicheware.platform.utilities.common`:
   on any key collision), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
   Malli-style paths), searching, sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
   `cycle-to-length`), string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
-  `current-time-millis`, `edn-read`). Nearly every other namespace depends on it (notably `deep-merge`).
+  `current-time-millis`, `edn-read`). Also `canonical-edn-str` — a deterministic EDN printer for content
+  digests: `=` values always print identically (sorted map entries/set elements, every sequential as a vector,
+  integers without `N`, BigDecimals trailing-zero stripped, UTC millisecond `#inst`, print vars and metadata
+  ignored; records/fns/NaN throw) — plus `slugify` (NFKD, locale-independent), `truncate-on-boundary`, and the
+  JVM-only `sha256-hex`. Nearly every other namespace depends on it (notably `deep-merge`).
 - `math` — float/number helpers, plus exact fractions: `round-to-increment`, `to-ratio`, `format-fraction`
   and `parse-mixed-fraction`. On the JVM these keep exact inputs (Long/BigInt/Ratio) exact, using integer
   arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has
