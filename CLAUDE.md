@@ -54,6 +54,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
   arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has
   no ratios, so there they operate on doubles. Note the older `roundn`/`div` always return doubles.
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
+  `graphics` also converts curves to cubic Bezier path segments (`[:move p]`/`[:line p]`/`[:cubic c1 c2 p]`):
+  `arc->cubics` (SVG `A`-command endpoint arcs, per SVG 1.1 F.6.5/F.6.6, y-down) and `ellipse->cubics`.
   `graphics.color` works on `[R G B A]` 0–255 vectors or packed ARGB ints (normalised via `color-as-rgba`;
   no CSS-string parsing) and includes WCAG `relative-luminance` / `contrast-ratio`.
 - `version` — in-memory versioning of an "asset map" of the shape
