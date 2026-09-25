@@ -118,3 +118,19 @@ Test results with debug off:
 - ClojureScript: 184 tests passed.
 
 Test results with debug on: I set COMMON_DEBUG=true and pointed the config at {:debug-on ["nicheware"]}. Both suites still pass, and every converted call site printed a debug line on both platforms. That confirms each one compiles when enabled and prints what it should.
+
+- ignore prompts.md
+
+I created .claude/settings.json, which denies both reading and editing PROMPTS.md:
+
+{
+  "permissions": {
+    "deny": ["Read(**/PROMPTS.md)", "Edit(**/PROMPTS.md)"]
+  }
+}
+
+I checked it: an attempt to read PROMPTS.md was refused by the permission settings. The rule also stops search tools from looking inside the file.
+
+Two notes:
+- Shared file: unlike settings.local.json, this file is meant to be committed, so the rule applies to anyone using Claude Code on the repo. It isn't committed yet.
+- Shell commands aren't covered: the rule doesn't stop commands like cat PROMPTS.md. The CLAUDE.md note covers that case.

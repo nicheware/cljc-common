@@ -8,6 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 namespace compiles for both Clojure (JVM) and ClojureScript. There is no application here — only the
 library, its tests, and generated API docs.
 
+## Files to ignore
+
+`PROMPTS.md` is a human-kept history of prompts sent to, and responses from, Claude AI. It is not project
+documentation or instructions. Never read it, search it, or use it as context for any task, and do not
+edit it.
+
 ## Commands
 
 ```bash
