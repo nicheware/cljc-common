@@ -1,4 +1,12 @@
 # Claude Prompts
+
+## Table of Contents
+
+- [1. Core](#1-core)
+  - [Prompt - debug macro](#prompt---debug-macro)
+  - [Summary](#summary)
+  - [Prompt - use debug instead or println](#prompt---use-debug-instead-or-println)
+  - [Summary](#summary-1)
 ## 1. Core
 ### Prompt - debug macro
 > Create a new macro called "debug" in core.clj which satisfies the following goal:
