@@ -24,11 +24,13 @@ There are groups of functions within common.core that deal with:
 |function composition| [[compose-fns]]|
 |exceptions| [[throw-illegal-arg]]|
 |threading macros| [[cond-t]]|
+|debugging| [[debug]] (compiled out unless enabled)|
 
 "
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn]
-               :cljs [cljs.reader :as reader])))
+               :cljs [cljs.reader :as reader]))
+  #?(:cljs (:require-macros [nicheware.platform.utilities.common.core])))
 
 ;; ================================= Sequence slice functions ======================
 
@@ -1822,6 +1824,193 @@ eg:
      (if pred-val#
        (~map-fn ~val)
        ~val)))
+
+;; ============================== Debug macro =================================
+
+(def ^:no-doc debug-env-var
+  "Environment variable that must be \"true\" (at compile time) for any [[debug]] output."
+  "COMMON_DEBUG")
+
+(def ^:no-doc debug-config-env-var
+  "Environment variable naming an optional EDN debug config file, eg {:debug-on [\"com.acme.*\"]}"
+  "COMMON_DEBUG_CONFIG")
+
+(defn ^:no-doc last-namespaces
+  "Returns the last n dot separated segments of the given namespace name.
+
+  - ns-name: namespace name as a symbol or string
+  - n: number of trailing segments to keep
+  - returns: string of the last n segments, eg (last-namespaces 'a.b.c.d 2) => \"c.d\""
+  [ns-name n]
+  (let [segments (str/split (str ns-name) #"\.")]
+    (str/join "." (take-last n segments))))
+
+(defn ^:no-doc debug-pattern
+  "Normalises one :debug-on entry (string or symbol) to its pattern string, removing any
+   wrapping single quotes, so both \"com.acme.*\" and 'com.acme.*' (as in a shell-style config) work."
+  [entry]
+  (let [s (str/trim (str entry))]
+    (if (and (> (count s) 1) (str/starts-with? s "'") (str/ends-with? s "'"))
+      (subs s 1 (dec (count s)))
+      s)))
+
+(defn ^:no-doc ns-matches-pattern?
+  "True if the namespace name matches the regex pattern, anchored at the start of the name.
+   So com.acme.stratum* matches com.acme.stratum and com.acme.stratum.core; add a trailing $ for an exact match."
+  [ns-name pattern]
+  (boolean (re-find (re-pattern (str "^(?:" (debug-pattern pattern) ")")) (str ns-name))))
+
+(defn ^:no-doc debug-config-matches?
+  "True if the namespace matches any pattern in the :debug-on list of the debug config map."
+  [config ns-name]
+  (boolean (some #(ns-matches-pattern? ns-name %) (:debug-on config))))
+
+(defn ^:no-doc debug-on?
+  "Pure decision of whether debug is on for a namespace.
+
+  - env-enabled?: true if COMMON_DEBUG is \"true\". When false debug is always off.
+  - config: the parsed debug config map, or nil when there is none. A matching :debug-on entry turns
+    debug on regardless of namespace metadata.
+  - ns-name: namespace being compiled.
+  - ns-meta: that namespace's metadata. {:debug true} turns debug on.
+  - returns: boolean"
+  [{:keys [env-enabled? config ns-name ns-meta]}]
+  (boolean
+   (and env-enabled?
+        (or (debug-config-matches? config ns-name)
+            (true? (:debug ns-meta))))))
+
+(defn ^:no-doc debug-thread-name
+  "Name of the current thread; ClojureScript has only the one, reported as \"main\"."
+  []
+  #?(:clj  (.getName (Thread/currentThread))
+     :cljs "main"))
+
+(defn ^:no-doc debug-timestamp
+  "Current local date-time string, eg \"Tue Sep 12 12:49:08 AEST 2023\" (JavaScript's Date format in ClojureScript)."
+  []
+  #?(:clj  (str (java.util.Date.))
+     :cljs (str (js/Date.))))
+
+(defn ^:no-doc debug-line
+  "Formats one debug line.
+
+  - thread-name, timestamp: strings
+  - ns-label: shortened namespace, eg \"common.core\"
+  - fn-name: function name string
+  - arg-names: source form of each argument, as strings
+  - arg-values: evaluated value of each argument, printed with pr-str
+  - returns: \"debug: (<thread>) [<timestamp>]: <ns-label>/<fn-name>(): <name>: <value>, ...\""
+  [thread-name timestamp ns-label fn-name arg-names arg-values]
+  (str "debug: (" thread-name ") [" timestamp "]: " ns-label "/" fn-name "(): "
+       (str/join ", " (map (fn [arg-name value] (str arg-name ": " (pr-str value)))
+                           arg-names arg-values))))
+
+(defn ^:no-doc debug-print
+  "Runtime half of [[debug]]: prints the debug line for the given argument names and values, returning nil."
+  [ns-label fn-name arg-names arg-values]
+  (println (debug-line (debug-thread-name) (debug-timestamp) ns-label fn-name arg-names arg-values)))
+
+#?(:clj
+   (defn ^:no-doc debug-settings
+     "Reads the debug environment variables. Separated out so tests can redefine it.
+
+     - returns: {:env-enabled? <boolean> :config-path <string or nil>}"
+     []
+     {:env-enabled? (= "true" (some-> (System/getenv debug-env-var) str/trim str/lower-case))
+      :config-path  (some-> (System/getenv debug-config-env-var) str/trim not-empty)}))
+
+#?(:clj
+   (def ^:no-doc debug-config-cache
+     "Parsed debug config files, as {<path> {:modified <millis> :config <map or nil>}}, re-read only on change."
+     (atom {})))
+
+#?(:clj
+   (defn ^:no-doc read-debug-config
+     "Reads and parses the EDN debug config file, expanding a leading ~ to the user's home directory.
+      Results are cached by file modification time, as this runs for every [[debug]] macro expansion.
+      A missing or unreadable file prints one warning to *err* and is treated as no config (nil)."
+     [path]
+     (let [file     (java.io.File. ^String (str/replace-first path #"^~(?=/|$)"
+                                                              (System/getProperty "user.home")))
+           modified (.lastModified file)
+           cached   (get @debug-config-cache path)]
+       (if (and cached (= modified (:modified cached)))
+         (:config cached)
+         (let [config (try
+                        (let [value (edn/read-string (slurp file))]
+                          (when-not (map? value)
+                            (throw (ex-info "debug config must be an EDN map" {:value value})))
+                          value)
+                        (catch Exception e
+                          (binding [*out* *err*]
+                            (println (str "debug: ignoring debug config file " (.getPath file)
+                                          " (" debug-config-env-var "): " (.getMessage e))))
+                          nil))]
+           (swap! debug-config-cache assoc path {:modified modified :config config})
+           config)))))
+
+#?(:clj
+   (defn ^:no-doc debug-enabled?
+     "Compile time check of whether [[debug]] output is on for the namespace, from the environment
+      variables, debug config file and the namespace metadata."
+     [ns-name ns-meta]
+     (let [{:keys [env-enabled? config-path]} (debug-settings)]
+       (and env-enabled?
+            (debug-on? {:env-enabled? env-enabled?
+                        :config       (some-> config-path read-debug-config)
+                        :ns-name      ns-name
+                        :ns-meta      ns-meta})))))
+
+#?(:clj
+   (defmacro debug
+     "Prints a debug line naming the function and the name and value of each argument, eg
+
+   ```
+     debug: (nREPL-worker-3) [Tue Sep 12 12:49:08 AEST 2023]: common.core/slice(): coll: [1 2 3], range: {:start 1}
+   ```
+
+     - fn-name: name of the enclosing function, as a string.
+     - args: any expressions or variables in scope. Each is labelled with its source form and printed with pr-str.
+     - returns: nil
+
+     The on/off decision is made when the macro is expanded (compiled), not at run time. When debug is off
+     the call expands to nil, so the arguments are not evaluated and there is no runtime cost.
+
+     Debug is on only when the environment variable COMMON_DEBUG is \"true\" and either:
+
+     - the namespace metadata has {:debug true}, eg (ns ^{:debug true} my.app.core ...) or (ns my.app.core {:debug true} ...).
+       A missing value or {:debug false} is off.
+     - COMMON_DEBUG_CONFIG names an EDN file (a leading ~ is expanded) whose :debug-on list has a regex
+       matching the start of the namespace name. A match turns debug on even when the metadata has {:debug false}.
+
+   ```
+     export COMMON_DEBUG='true'
+     export COMMON_DEBUG_CONFIG='~/debug-config.edn'
+
+     ;; ~/debug-config.edn
+     {:debug-on [\"com.transacumen.stratum.*\"
+                 \"com.transacumen.commons$\"]}
+   ```
+
+     Changing either variable, the config file or the metadata only takes effect when the namespace is recompiled.
+     In ClojureScript the check is made by the (JVM) compiler, and the thread is always reported as \"main\".
+
+   ```clojure
+     (defn slice
+       [coll range]
+       (debug \"slice\" coll range (count coll))
+       ...)
+   ```
+   "
+     [fn-name & args]
+     (let [cljs-ns (:ns &env)
+           ns-sym  (if cljs-ns (:name cljs-ns) (ns-name *ns*))
+           ns-meta (if cljs-ns
+                     (merge (meta (:name cljs-ns)) (:meta cljs-ns))
+                     (meta *ns*))]
+       (when (debug-enabled? ns-sym ns-meta)
+         `(debug-print ~(last-namespaces ns-sym 2) ~fn-name ~(mapv pr-str args) [~@args])))))
 
 
 ;; ====================== Exceptions =====================================

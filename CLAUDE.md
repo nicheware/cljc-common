@@ -52,7 +52,10 @@ All namespaces live under `nicheware.platform.utilities.common`:
   digests: `=` values always print identically (sorted map entries/set elements, every sequential as a vector,
   integers without `N`, BigDecimals trailing-zero stripped, UTC millisecond `#inst`, print vars and metadata
   ignored; records/fns/NaN throw) — plus `slugify` (NFKD, locale-independent), `truncate-on-boundary`, and the
-  JVM-only `sha256-hex`. Nearly every other namespace depends on it (notably `deep-merge`).
+  JVM-only `sha256-hex`. Also the `debug` macro, whose on/off decision is made at macro-expansion time
+  (env `COMMON_DEBUG=true` plus ns metadata `{:debug true}` or a `COMMON_DEBUG_CONFIG` EDN `:debug-on` regex
+  list); when off it expands to nil. The ns self-`:require-macros` under ClojureScript so `:refer [debug]` works.
+  Nearly every other namespace depends on it (notably `deep-merge`).
 - `math` — float/number helpers, plus exact fractions: `round-to-increment`, `to-ratio`, `format-fraction`
   and `parse-mixed-fraction`. On the JVM these keep exact inputs (Long/BigInt/Ratio) exact, using integer
   arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has

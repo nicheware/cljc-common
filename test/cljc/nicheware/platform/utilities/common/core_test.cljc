@@ -1,6 +1,7 @@
 (ns nicheware.platform.utilities.common.core-test
   (:require [nicheware.platform.utilities.common.core :as sut]
             [camel-snake-kebab.core :as csk]
+            [clojure.string :as str]
             #?(:clj [clojure.test :as t]
                :cljs [cljs.test :as t :include-macros true])
             [nicheware.platform.utilities.common.core :as common]))
@@ -1164,6 +1165,107 @@
              (-> 4
                  (sut/cond-t #(= % 3) inc)
                  inc)))))
+
+;; ================================== Debug macro ==================================
+
+(t/deftest test-last-namespaces
+  (t/testing "Keeps the last two segments"
+    (t/is (= "common.core" (sut/last-namespaces 'nicheware.platform.utilities.common.core 2))))
+  (t/testing "Single segment namespace kept whole"
+    (t/is (= "user" (sut/last-namespaces "user" 2)))))
+
+(t/deftest test-ns-matches-pattern?
+  (t/testing "Wildcard pattern matches the namespace and those below it"
+    (t/is (sut/ns-matches-pattern? 'com.transacumen.stratum "com.transacumen.stratum*"))
+    (t/is (sut/ns-matches-pattern? 'com.transacumen.stratum.core "com.transacumen.stratum*"))
+    (t/is (not (sut/ns-matches-pattern? 'com.transacumen.commons "com.transacumen.stratum*"))))
+  (t/testing "Anchored at the start of the name"
+    (t/is (not (sut/ns-matches-pattern? 'org.com.transacumen.stratum "com.transacumen.stratum"))))
+  (t/testing "Trailing $ requires an exact match"
+    (t/is (sut/ns-matches-pattern? 'com.transacumen.commons "com.transacumen.commons$"))
+    (t/is (not (sut/ns-matches-pattern? 'com.transacumen.commons.core "com.transacumen.commons$"))))
+  (t/testing "Single quoted symbol entries, as read from a shell-style config, are unwrapped"
+    (t/is (sut/ns-matches-pattern? 'com.transacumen.stratum.core (symbol "'com.transacumen.stratum*'")))))
+
+(t/deftest test-debug-on?
+  (let [config {:debug-on ["com.acme.*"]}]
+    (t/testing "Always off when the environment variable is not enabled"
+      (t/is (false? (sut/debug-on? {:env-enabled? false :config config :ns-name 'com.acme.core
+                                    :ns-meta {:debug true}}))))
+    (t/testing "Namespace metadata {:debug true} turns debug on"
+      (t/is (true? (sut/debug-on? {:env-enabled? true :ns-name 'my.core :ns-meta {:debug true}}))))
+    (t/testing "Missing or false metadata is off"
+      (t/is (false? (sut/debug-on? {:env-enabled? true :ns-name 'my.core :ns-meta {}})))
+      (t/is (false? (sut/debug-on? {:env-enabled? true :ns-name 'my.core :ns-meta {:debug false}}))))
+    (t/testing "Config match turns debug on, overriding {:debug false} metadata"
+      (t/is (true? (sut/debug-on? {:env-enabled? true :config config :ns-name 'com.acme.core
+                                   :ns-meta {:debug false}}))))
+    (t/testing "Config without a match falls back to the metadata"
+      (t/is (false? (sut/debug-on? {:env-enabled? true :config config :ns-name 'my.core :ns-meta nil})))
+      (t/is (true? (sut/debug-on? {:env-enabled? true :config config :ns-name 'my.core
+                                   :ns-meta {:debug true}}))))))
+
+(t/deftest test-debug-line
+  (t/testing "Formats thread, time, namespace, function and each argument name and value"
+    (t/is (= "debug: (nREPL-3) [Tue Sep 12 12:49:08 AEST 2023]: common.core/slice(): coll: [1 2], range: {:start 1}, (count coll): 2, s: \"a\""
+             (sut/debug-line "nREPL-3" "Tue Sep 12 12:49:08 AEST 2023" "common.core" "slice"
+                             ["coll" "range" "(count coll)" "s"] [[1 2] {:start 1} 2 "a"]))))
+  (t/testing "No arguments"
+    (t/is (= "debug: (main) [now]: common.core/f(): "
+             (sut/debug-line "main" "now" "common.core" "f" [] []))))
+  (t/testing "debug-print prints the line and returns nil"
+    (let [out (with-out-str (t/is (nil? (sut/debug-print "common.core" "f" ["x"] [1]))))]
+      (t/is (str/includes? out "]: common.core/f(): x: 1"))
+      (t/is (str/starts-with? out "debug: (")))))
+
+(t/deftest test-debug
+  (t/testing "Returns nil whether or not debug is enabled for this build"
+    (t/is (nil? (sut/debug "test-debug" 1 (+ 1 2)))))
+
+  #?(:clj
+     (let [enabled   {:env-enabled? true :config-path nil}
+           test-ns   (the-ns 'nicheware.platform.utilities.common.core-test)
+           expand    (fn [ns-meta form]
+                       (with-redefs [sut/debug-settings (constantly enabled)]
+                         (binding [*ns* (create-ns 'nicheware.debug.macro-test)]
+                           (reset-meta! *ns* ns-meta)
+                           (macroexpand-1 form))))]
+       (t/testing "Compiled out (nil) when the environment variable is not enabled"
+         (with-redefs [sut/debug-settings (constantly {:env-enabled? false :config-path nil})]
+           (binding [*ns* test-ns]
+             (t/is (nil? (macroexpand-1 '(nicheware.platform.utilities.common.core/debug "f" x)))))))
+
+       (t/testing "Compiled out when the namespace metadata does not enable it"
+         (t/is (nil? (expand {} '(nicheware.platform.utilities.common.core/debug "f" x))))
+         (t/is (nil? (expand {:debug false} '(nicheware.platform.utilities.common.core/debug "f" x)))))
+
+       (t/testing "Expands to a debug-print call naming each argument when metadata enables it"
+         (t/is (= '(nicheware.platform.utilities.common.core/debug-print
+                    "debug.macro-test" "f" ["x" "(count y)"] [x (count y)])
+                  (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "f" x (count y))))))
+
+       (t/testing "Enabled expansion prints the values of variables in scope"
+         (let [form (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "slice" coll range))
+               out  (with-out-str (eval `(let [~'coll [1 2 3] ~'range {:start 1}] ~form)))]
+           (t/is (re-matches #"debug: \(.+\) \[.+\]: debug\.macro-test/slice\(\): coll: \[1 2 3\], range: \{:start 1\}\n"
+                             out))))
+
+       (t/testing "Config file match turns debug on, even with {:debug false} metadata"
+         (let [file (java.io.File/createTempFile "debug-config" ".edn")]
+           (try
+             (spit file "{:debug-on ['nicheware.debug.*']}")
+             (with-redefs [sut/debug-settings (constantly {:env-enabled? true :config-path (.getPath file)})]
+               (binding [*ns* (create-ns 'nicheware.debug.macro-test)]
+                 (reset-meta! *ns* {:debug false})
+                 (t/is (some? (macroexpand-1 '(nicheware.platform.utilities.common.core/debug "f" x))))))
+             (finally (.delete file)))))
+
+       (t/testing "Missing config file is treated as no config"
+         (with-redefs [sut/debug-settings (constantly {:env-enabled? true :config-path "/no/such/debug.edn"})]
+           (binding [*ns* (create-ns 'nicheware.debug.macro-test)
+                     *err* (java.io.StringWriter.)]
+             (reset-meta! *ns* {})
+             (t/is (nil? (macroexpand-1 '(nicheware.platform.utilities.common.core/debug "f" x))))))))))
 
 (t/deftest test-throw-illegal-arg
   (t/testing "Test that throws correct exception"
