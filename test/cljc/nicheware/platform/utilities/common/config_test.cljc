@@ -5,6 +5,7 @@
             #?(:clj [ring.util.response :as ring-response])
             #?(:clj [ring.adapter.jetty :as ring-jetty])
             [promesa.core :as p]
+            [nicheware.platform.utilities.common.core :as common]
             #?(:clj [clojure.test :as t]
                :cljs [cljs.test :as t :include-macros true])))
 
@@ -24,14 +25,14 @@
 #?(:clj
    (defn http-server-fixture
      [test-fn]
-     (println "Before test")
+     (common/debug "http-server-fixture" "Before test")
      (let [server (ring-jetty/run-jetty
                    #'ring-app
                    {:port 9991 :join? false})]
        (try
          (test-fn)
          (finally (.stop server))))
-     (println "After test")))
+     (common/debug "http-server-fixture" "After test")))
 
 #?(:clj
    (t/use-fixtures :once http-server-fixture))

@@ -121,7 +121,7 @@
 
    "
   [versioned-asset {:keys [modified-time] :as element}]
-  ;;(println "find-index(): modified-time: " modified-time)
+  (common/debug "find-index" modified-time)
   (-> versioned-asset
       get-ordered-versions
       (common/find-index-by-pred #(= (:modified-time %) modified-time))))
@@ -191,7 +191,7 @@
    - returns: The current version of the asset.
 "
   [{:keys [current versions] :as versioned-asset}]
-  ;;(println "get-current-asset(): current: " current " versioned-asset: " versioned-asset)
+  (common/debug "get-current-asset" current versioned-asset)
   (get versions current))
 
 (defn rename-versions
@@ -225,7 +225,7 @@
 "
   ([element] (timestamp-element element false))
   ([element force]
-   ;;(println "timestamp-element(): element: " element)
+   (common/debug "timestamp-element" element)
    (if (or force (not (:modified-time element)))
      (assoc element :modified-time (common/current-time-millis))
      element)))
@@ -251,10 +251,9 @@
    - returns: versioned-asset with element added as the latest version (i.e. ```:current``` updated)
 "
   [versioned-asset element]
-  ;;(println "add-version(): element: " element)
-  (let [{:keys [modified-time] :as  versioned-element} (version-element element)
-        ;;dummy (println "add-version(): modified-time: " modified-time)
-        ]
+  (common/debug "add-version" element)
+  (let [{:keys [modified-time] :as  versioned-element} (version-element element)]
+    (common/debug "add-version" modified-time)
     (-> (if (get-in versioned-asset [:versions modified-time])
           versioned-asset
           (assoc-in versioned-asset [:versions modified-time] versioned-element))
@@ -269,7 +268,7 @@
 
   Should be used only when updates are to be made to the current version which you don't want to affect versioning."
   [{:keys [current] :as versioned-asset} asset]
-  ;;(println "replace-current(): current: " current)
+  (common/debug "replace-current" current)
   (let [updated-asset (assoc asset :modified-time current)]
     (assoc-in versioned-asset [:versions current] updated-asset)))
 
@@ -297,7 +296,7 @@
 
 "
   [mutation versioned-asset asset]
-  ;;(println "mutate-version(): mutation: " mutation " name: " (:name versioned-asset))
+  (common/debug "mutate-version" mutation (:name versioned-asset))
   (let [updated-asset (assoc asset :mutation mutation)
         current-mutation (:mutation (get-current-asset versioned-asset))]
     (if (= mutation current-mutation)
@@ -345,7 +344,7 @@
 "
   ([versioned-asset] (remove-unused-versions versioned-asset (constantly false)))
   ([{:keys [current versions] :as versioned-asset} pred-fn]
-   ;;(println "remove-unused-versions(): versioned-asset.versions: " versions)
+   (common/debug "remove-unused-versions" versions)
    (let [remove-pred #(not (or (= current (:modified-time %))
                                (:starred %)
                                (pred-fn %)))]

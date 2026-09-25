@@ -1213,6 +1213,9 @@
   (t/testing "No arguments"
     (t/is (= "debug: (main) [now]: common.core/f(): "
              (sut/debug-line "main" "now" "common.core" "f" [] []))))
+  (t/testing "A nil name (string literal argument) is output unlabelled"
+    (t/is (= "debug: (main) [now]: common.core/f(): Before test, x: 1"
+             (sut/debug-line "main" "now" "common.core" "f" [nil "x"] ["Before test" 1]))))
   (t/testing "debug-print prints the line and returns nil"
     (let [out (with-out-str (t/is (nil? (sut/debug-print "common.core" "f" ["x"] [1]))))]
       (t/is (str/includes? out "]: common.core/f(): x: 1"))
@@ -1242,7 +1245,10 @@
        (t/testing "Expands to a debug-print call naming each argument when metadata enables it"
          (t/is (= '(nicheware.platform.utilities.common.core/debug-print
                     "debug.macro-test" "f" ["x" "(count y)"] [x (count y)])
-                  (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "f" x (count y))))))
+                  (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "f" x (count y)))))
+         (t/is (= '(nicheware.platform.utilities.common.core/debug-print
+                    "debug.macro-test" "f" [nil "x"] ["message" x])
+                  (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "f" "message" x)))))
 
        (t/testing "Enabled expansion prints the values of variables in scope"
          (let [form (expand {:debug true} '(nicheware.platform.utilities.common.core/debug "slice" coll range))

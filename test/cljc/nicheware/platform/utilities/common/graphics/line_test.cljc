@@ -1,6 +1,7 @@
 (ns nicheware.platform.utilities.common.graphics.line-test
   (:require [nicheware.platform.utilities.common.graphics.line :as sut]
             [nicheware.platform.utilities.common.math :as math]
+            [nicheware.platform.utilities.common.core :as common]
             #?(:clj [clojure.test :as t]
                :cljs [cljs.test :as t :include-macros true])))
 
@@ -18,17 +19,17 @@
 (defn unittest-lerp
   "Utility function to allow testing of any lerp function. Means we can test make-lerp and lerp "
   [lerp-fn [x1 y1 :as start] [x2 y2 :as end]]
-  ;;;(println "Lerp: " (lerp-fn 0.0))
+  (common/debug "unittest-lerp" (lerp-fn 0.0))
   (t/testing "Test start of line"
     (t/is (= [(float x1) (float y1)]
              (lerp-fn 0.0))))
 
-  ;;(println "Lerp: " (lerp-fn 1.0))
+  (common/debug "unittest-lerp" (lerp-fn 1.0))
   (t/testing "Test end of line"
     (t/is (= [(float x2) (float y2)]
              (lerp-fn 1.0))))
 
-  ;;(println "Lerp: " (lerp-fn 0.5))
+  (common/debug "unittest-lerp" (lerp-fn 0.5))
   (t/testing "Test middle of line"
     (t/is (= [(float (/ (- x2 x1) 2)) (float (/ (- y2 y1) 2))]
              (lerp-fn 0.5)))))

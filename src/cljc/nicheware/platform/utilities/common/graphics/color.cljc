@@ -173,7 +173,7 @@ a text/background pair against a contrast floor:
 "
   [[red green blue alpha :as color-value]]
   (let [css-value (f/format ["#" (f/hex 2) (f/hex 2) (f/hex 2)] red green blue)]
-;;    (println "color-vector-as-css-hex(): red: " red " green: " green " blue: " blue " css: " css-value)
+    (common/debug "color-vector-as-css-hex" red green blue css-value)
     css-value))
 
 (defn color-as-css-hex
@@ -184,7 +184,7 @@ a text/background pair against a contrast floor:
   - returns: CSS hex RGB string ```#FFFFFF```
 "
   [color-value]
-;;  (println "color-as-css-hex(): color-value: " color-value)
+  (common/debug "color-as-css-hex" color-value)
   (-> color-value
       color-as-rgba
       rgba-as-css-hex))
@@ -333,7 +333,7 @@ a text/background pair against a contrast floor:
   - returns: input color converted to the to-model. So either ```[R G B A]``` or ```[H S L A]```
 "
   [from-model to-model color]
-;;  (println "model-from-to(): from: " from-model " to:" to-model)
+  (common/debug "model-from-to" from-model to-model)
   (match [from-model to-model]
          [:rgba :hsla] (rgba-to-hsla color)
          [:hsla :rgba] (hsla-to-rgba color)
@@ -370,13 +370,13 @@ a text/background pair against a contrast floor:
 
 "
   [start-color end-color]
-  ;;(println "make-color-increment-fn(): start-color: " start-color " end-color: " end-color)
+  (common/debug "make-color-increment-fn" start-color end-color)
   (let [start (color-as-rgba start-color)
         end (color-as-rgba end-color)
         difference (map #(- %2 %1) start end)]
-;;    (println "make-color-increment-fn(): start: " start " end: " end)
+    (common/debug "make-color-increment-fn" start end)
     (fn [color]
-      ;;(println "color-increment-fn(): color: " color " difference: " difference)
+      (common/debug "color-increment-fn" color difference)
       (into [] (->> (color-as-rgba color)
                     (map #(+ %1 %2) difference)
                     (map #(min (max %1 0) 255)))))))
