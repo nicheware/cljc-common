@@ -829,6 +829,24 @@
     (t/is (= {1 {:id 1 :val "one"}, 2 {:id 2 :val "two"}, 3 {:id 3 :val "three"}}
              (sut/index-by test-vec :id)))))
 
+(t/deftest test-sort-map-by-key
+  (t/testing "Default comparator"
+    (t/is (= [[:a 1] [:b 2] [:c 3]] (sut/sort-map-by-key {:b 2 :a 1 :c 3})))
+    (t/is (= [["a" 1] ["b" 2]] (sut/sort-map-by-key {"b" 2 "a" 1})))
+    (t/is (vector? (sut/sort-map-by-key {:a 1})))
+    (t/is (= [] (sut/sort-map-by-key {})))
+    (t/is (= [] (sut/sort-map-by-key nil))))
+
+  (t/testing "Supplied comparator"
+    (t/is (= [[:c 3] [:b 2] [:a 1]] (sut/sort-map-by-key {:b 2 :a 1 :c 3} #(compare %2 %1))))
+    (t/is (= [[:a 1] ["b" 2] [:c 3]]
+             (sut/sort-map-by-key {"b" 2 :c 3 :a 1} #(compare (name %1) (name %2))))))
+
+  (t/testing "Round trips to the same map"
+    (let [m (zipmap (range 20) (map str (range 20)))]
+      (t/is (= (sort (keys m)) (map first (sut/sort-map-by-key m))))
+      (t/is (= m (into {} (sut/sort-map-by-key m)))))))
+
 
 (t/deftest test-filter-val
   (t/testing "Filter val"

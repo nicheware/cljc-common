@@ -51,7 +51,7 @@ All namespaces live under `nicheware.platform.utilities.common`:
 
 - `core` — the base namespace; complements `clojure.core` (slicing, collection insert/replace, map
   transforms (`map-all-keys` optionally recursing into sequentials/sets), `merge-disjoint` (merge that throws
-  on any key collision), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
+  on any key collision), `sort-map-by-key` (vector of entries ordered by key), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
   Malli-style paths), searching, sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
   `cycle-to-length`), string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
   `current-time-millis`, `edn-read`). Also `canonical-edn-str` — a deterministic EDN printer for content
@@ -66,6 +66,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
   and `parse-mixed-fraction`. On the JVM these keep exact inputs (Long/BigInt/Ratio) exact, using integer
   arithmetic only and never passing through a double; whole results are normalised to Long. ClojureScript has
   no ratios, so there they operate on doubles. Note the older `roundn`/`div` always return doubles.
+- `string` — complements `clojure.string`: `escape-html` (`& < >`) and `escape-attr` (also `"` and `'`),
+  single-pass, returning the identical input string when nothing needs escaping.
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
   `graphics` also converts curves to cubic Bezier path segments (`[:move p]`/`[:line p]`/`[:cubic c1 c2 p]`):
   `arc->cubics` (SVG `A`-command endpoint arcs, per SVG 1.1 F.6.5/F.6.6, y-down) and `ellipse->cubics`.

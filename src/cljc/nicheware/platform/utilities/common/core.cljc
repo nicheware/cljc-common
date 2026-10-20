@@ -12,7 +12,7 @@ There are groups of functions within common.core that deal with:
 |general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
 |sequence patterns| [[maximal-runs]], [[run-length-encode]], [[run-length-decode]], [[find-repeating-motif]], [[cycle-to-length]]|
 |collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
-|map utility|  [[deep-merge]], [[merge-disjoint]], [[dissoc-in]], [[index-by]]|
+|map utility|  [[deep-merge]], [[merge-disjoint]], [[dissoc-in]], [[index-by]], [[sort-map-by-key]]|
 |map transform| [[map-values]], [[map-keys]], [[map-all-keys]]|
 |map filtering| [[filter-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
 |nested data| [[dissoc-all-keys]], [[paths-where]]|
@@ -1147,6 +1147,29 @@ eg:
 "
   [coll key-fn]
   (into {} (map (juxt key-fn identity) coll)))
+
+(defn sort-map-by-key
+  "Projects a map to a vector of its `[k v]` entries ordered by key, for deterministic output of an
+   unordered map. The map itself is not changed and no sorted map is created.
+
+   The default comparator is `compare`, which throws for keys of mixed, incomparable types (eg keywords
+   and strings); supply a comparator for those, such as `#(compare (str %1) (str %2))`.
+
+   - m: map to project. nil or empty returns `[]`.
+   - comparator: optional comparator fn of two keys, default `compare`.
+   - returns: vector of map entries sorted by key. `sort` is stable, so keys the comparator treats as
+     equal keep the map's iteration order.
+
+eg:
+```clojure
+(sort-map-by-key {:b 2 :a 1 :c 3})                  => [[:a 1] [:b 2] [:c 3]]
+(sort-map-by-key {:b 2 :a 1 :c 3} #(compare %2 %1)) => [[:c 3] [:b 2] [:a 1]]
+(into {} (sort-map-by-key m))                       => m
+```
+"
+  ([m] (sort-map-by-key m compare))
+  ([m comparator]
+   (vec (sort-by key comparator m))))
 
 ;; ==================== Map transform functions ===================
 

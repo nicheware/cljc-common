@@ -10,6 +10,7 @@
    [nicheware.platform.utilities.common.state.migration-test]
    [nicheware.platform.utilities.common.version-test]
    [nicheware.platform.utilities.common.math-test]
+   [nicheware.platform.utilities.common.string-test]
    ))
 
 (enable-console-print!)
@@ -23,4 +24,5 @@
            'nicheware.platform.utilities.common.state.migration-test
            'nicheware.platform.utilities.common.version-test
            'nicheware.platform.utilities.common.math-test
+           'nicheware.platform.utilities.common.string-test
            )
