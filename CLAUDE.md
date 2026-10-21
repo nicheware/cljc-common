@@ -51,7 +51,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
 
 - `core` — the base namespace; complements `clojure.core` (slicing, collection insert/replace, map
   transforms (`map-all-keys` optionally recursing into sequentials/sets), `merge-disjoint` (merge that throws
-  on any key collision), `deep-merge-layers` (deep-merge fold over ordered layers, nil layers dropped), `sort-map-by-key` (vector of entries ordered by key), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
+  on any key collision), `deep-merge-layers` (deep-merge fold over ordered layers, nil layers dropped; opt-in `:directives?` resolves
+  `:merge/append`/`:merge/prepend`/`:merge/reset` maps at each fold step, map positions only), `sort-map-by-key` (vector of entries ordered by key), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
   Malli-style paths), searching (incl. `classify-by-namespace`: first `[ns-prefix value]` matching a keyword's
   dotted namespace), sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
   `cycle-to-length`), `split-while-cumulative` (split a collection where the running total of `(f item)` first

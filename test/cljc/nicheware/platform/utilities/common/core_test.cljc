@@ -949,6 +949,161 @@
   #?(:clj (.getMessage ^Throwable ex)
      :cljs (.-message ex)))
 
+(def ^:private directives {:directives? true})
+
+(defn- directive-keys-in-maps
+  "Set of :merge/* directive keys found in any map reachable through map values only."
+  [value]
+  (if (map? value)
+    (into (set (filter #{:merge/append :merge/prepend :merge/reset} (keys value)))
+          (mapcat directive-keys-in-maps (vals value)))
+    #{}))
+
+(defn- directive-ex-data
+  "ex-data of the exception thrown by deep-merge-layers with directives, or nil if none thrown."
+  [layers]
+  (some-> (thrown-ex #(sut/deep-merge-layers layers directives)) ex-data))
+
+(t/deftest test-deep-merge-layers-directives
+  (t/testing "Append and prepend onto a vector"
+    (t/is (= {:v [1 2 3 4]}
+             (sut/deep-merge-layers [{:v [1 2]} {:v {:merge/append [3 4]}}] directives)))
+    (t/is (= {:v [3 4 1 2]}
+             (sut/deep-merge-layers [{:v [1 2]} {:v {:merge/prepend [3 4]}}] directives)))
+    (t/is (vector? (:v (sut/deep-merge-layers [{:v '(1 2)} {:v {:merge/append [3]}}] directives))))
+    (t/is (= {:v [0 1 2]}
+             (sut/deep-merge-layers [{:v '(1 2)} {:v {:merge/prepend '(0)}}] directives))))
+
+  (t/testing "The docstring example"
+    (t/is (= {:assets {:roots ["./studio-assets" "./assets" "classpath:assets"]}}
+             (sut/deep-merge-layers [{:assets {:roots ["./assets" "classpath:assets"]}}
+                                     {:assets {:roots {:merge/prepend ["./studio-assets"]}}}]
+                                    directives))))
+
+  (t/testing "Append and prepend onto a set give the union"
+    (t/is (= {:s #{:a :b :c}}
+             (sut/deep-merge-layers [{:s #{:a}} {:s {:merge/append [:b :c]}}] directives)))
+    (t/is (= {:s #{:a :b :c}}
+             (sut/deep-merge-layers [{:s #{:a :b}} {:s {:merge/prepend #{:c}}}] directives))))
+
+  (t/testing "Onto an absent key or explicit nil the items are used as given"
+    (t/is (= {:a 1 :v [3 4]}
+             (sut/deep-merge-layers [{:a 1} {:v {:merge/append [3 4]}}] directives)))
+    (t/is (= {:v #{3}}
+             (sut/deep-merge-layers [{:v nil} {:v {:merge/prepend #{3}}}] directives))))
+
+  (t/testing "A directive in the first layer resolves against nil"
+    (t/is (= {:v [1] :n {:w [2]}}
+             (sut/deep-merge-layers [{:v {:merge/append [1]} :n {:w {:merge/prepend [2]}}}] directives)))
+    (t/is (= {:v [1 2]}
+             (sut/deep-merge-layers [nil {:v {:merge/append [1]}} {:v {:merge/append [2]}}] directives))))
+
+  (t/testing "Nested directives under a key absent from the lower layer are resolved, not leaked"
+    (t/is (= {:a 1 :new {:deeper {:v [1] :x 2}}}
+             (sut/deep-merge-layers [{:a 1}
+                                     {:new {:deeper {:v {:merge/append [1]} :x 2}}}]
+                                    directives))))
+
+  (t/testing "Directives across three or more layers accumulate in order"
+    (t/is (= {:v [:p2 :p1 :base :a1 :a2]}
+             (sut/deep-merge-layers [{:v [:base]}
+                                     {:v {:merge/append [:a1]}}
+                                     {:v {:merge/prepend [:p1]}}
+                                     nil
+                                     {:v {:merge/append [:a2]}}
+                                     {:v {:merge/prepend [:p2]}}]
+                                    directives))))
+
+  (t/testing "A plain value above a directive replaces as usual"
+    (t/is (= {:v [9]}
+             (sut/deep-merge-layers [{:v [1]} {:v {:merge/append [2]}} {:v [9]}] directives))))
+
+  (t/testing "Reset discards the lower sub-map and keeps the rest keys"
+    (t/is (= {:keep 1 :db {:url "u" :pool 2}}
+             (sut/deep-merge-layers [{:keep 1 :db {:host "h" :pool 4 :opts {:ssl true}}}
+                                     {:db {:merge/reset true :url "u" :pool 2}}]
+                                    directives)))
+    (t/is (= {:db {}}
+             (sut/deep-merge-layers [{:db {:host "h"}} {:db {:merge/reset true}}] directives))))
+
+  (t/testing "Reset with a nested directive resolves it against nil"
+    (t/is (= {:db {:hosts [:c] :n {:tags #{:t}}}}
+             (sut/deep-merge-layers [{:db {:hosts [:a :b] :n {:tags #{:x}}}}
+                                     {:db {:merge/reset true
+                                           :hosts {:merge/append [:c]}
+                                           :n {:tags {:merge/prepend #{:t}}}}}]
+                                    directives))))
+
+  (t/testing "A higher layer deep-merges normally over a reset"
+    (t/is (= {:db {:url "u" :pool 8 :hosts [:c :d]}}
+             (sut/deep-merge-layers [{:db {:host "h" :pool 4}}
+                                     {:db {:merge/reset true :url "u" :hosts [:c]}}
+                                     {:db {:pool 8 :hosts {:merge/append [:d]}}}]
+                                    directives))))
+
+  (t/testing "Reset false or a top-level reset"
+    (t/is (= {:db {:host "h" :pool 2}}
+             (sut/deep-merge-layers [{:db {:host "h" :pool 4}} {:db {:merge/reset false :pool 2}}] directives)))
+    (t/is (= {:only 1}
+             (sut/deep-merge-layers [{:a 1 :b {:c 2}} {:merge/reset true :only 1}] directives))))
+
+  (t/testing "Non-directive semantics are those of deep-merge"
+    (let [layers [{:a 1 :n {:b 2 :v [1]} :s #{:x}} nil {:a nil :n {:v [2]} :s #{:y}}]]
+      (t/is (= (sut/deep-merge-layers layers)
+               (sut/deep-merge-layers layers directives))))
+    (t/is (= {:b 2} (sut/deep-merge-layers [{:a 1} 5 {:b 2}] directives)))
+    (t/is (= {} (sut/deep-merge-layers [nil nil] directives))))
+
+  (t/testing "Directives are not recognised inside vectors, sets or lists"
+    (t/is (= {:v [{:merge/append [1]}]}
+             (sut/deep-merge-layers [{:v [0]} {:v [{:merge/append [1]}]}] directives))))
+
+  (t/testing "Directive-shaped maps are plain maps when directives are off"
+    (doseq [opts [{} {:directives? false} nil]]
+      (t/is (= {:v [1 2] :n {:x 1 :w {:merge/append [3]}}}
+               (sut/deep-merge-layers [{:v [1 2] :n {:x 1}} {:n {:w {:merge/append [3]}}}] opts)))
+      (t/is (= {:v {:merge/append [3]}}
+               (sut/deep-merge-layers [{:v [1 2]} {:v {:merge/append [3]}}] opts)))
+      (t/is (= {:db {:host "h" :merge/reset true :url "u"}}
+               (sut/deep-merge-layers [{:db {:host "h"}} {:db {:merge/reset true :url "u"}}] opts))))
+    (t/is (= {:v {:merge/append [3]}}
+             (sut/deep-merge-layers [{:v [1 2]} {:v {:merge/append [3]}}]))))
+
+  (t/testing "A directive cannot apply to a scalar or map lower value"
+    (let [ex (thrown-ex #(sut/deep-merge-layers [{:n {:v 5}} {:n {:v {:merge/append [1]}}}] directives))]
+      (t/is (= "Merge directive cannot apply to existing value" (ex-msg ex)))
+      (t/is (= {:merge/directive :merge/append :merge/path [:n :v] :merge/existing 5} (ex-data ex))))
+    (t/is (= {:merge/directive :merge/prepend :merge/path [:m] :merge/existing {:a 1}}
+             (directive-ex-data [{:m {:a 1}} {:m {:merge/prepend [1]}}])))
+    (t/is (= {:merge/directive :merge/append :merge/path [:s] :merge/existing "str"}
+             (directive-ex-data [{:s "str"} {:s {:merge/append [1]}}]))))
+
+  (t/testing "A directive map with other keys throws"
+    (let [ex (thrown-ex #(sut/deep-merge-layers [{:a {:v [1]}} {:a {:v {:merge/append [2] :x 1}}}] directives))]
+      (t/is (= "Merge directive must be the only key in its map" (ex-msg ex)))
+      (t/is (= {:merge/directive :merge/append :merge/path [:a :v] :merge/existing [1]} (ex-data ex))))
+    (t/is (= {:merge/directive :merge/append :merge/path [:v] :merge/existing nil}
+             (directive-ex-data [{:v {:merge/append [1] :merge/prepend [2]}}])))
+    (t/is (= {:merge/directive :merge/prepend :merge/path [:v] :merge/existing [0]}
+             (directive-ex-data [{:v [0]} {:v {:merge/prepend [1] :merge/reset true}}]))))
+
+  (t/testing "Directive items that are not sequential or a set throw"
+    (let [ex (thrown-ex #(sut/deep-merge-layers [{:v [1]} {:v {:merge/append 2}}] directives))]
+      (t/is (= "Merge directive items must be sequential or a set" (ex-msg ex)))
+      (t/is (= {:merge/directive :merge/append :merge/path [:v] :merge/existing [1]} (ex-data ex))))
+    (t/is (= {:merge/directive :merge/prepend :merge/path [:n :v] :merge/existing nil}
+             (directive-ex-data [{:n {:v {:merge/prepend {:a 1}}}}]))))
+
+  (t/testing "No directive key remains in any map of the result"
+    (doseq [layers [[{:a {:merge/append [1]}}]
+                    [{:a [0]} {:a {:merge/prepend [1]} :b {:c {:d {:merge/append #{1}}}}}]
+                    [{:x {:y 1}} {:x {:merge/reset true :z {:merge/reset true :w {:merge/append [1]}}}}]
+                    [{} {:new {:merge/reset true :deep {:deeper {:merge/reset false :v {:merge/prepend [1]}}}}}]
+                    [{:a {:merge/reset false}} nil {:a {:b {:merge/reset true}}} {:a {:b {:c {:merge/append [2]}}}}]
+                    [{:l1 {:l2 {:l3 {:merge/append [1]}}}} {:l1 {:l2 {:l3 {:merge/append [2]} :l4 {:merge/reset true}}}}]]]
+      (let [result (sut/deep-merge-layers layers directives)]
+        (t/is (= #{} (directive-keys-in-maps result)) (str "layers: " (pr-str layers)))))))
+
 (t/deftest test-merge-disjoint
   (t/testing "Disjoint maps merge like merge"
     (t/is (= {:a 1 :b 2} (sut/merge-disjoint [{:a 1} {:b 2}])))

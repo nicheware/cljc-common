@@ -1284,6 +1284,67 @@ eg:
     (apply merge-with deep-merge maps)
     (last maps)))
 
+(def ^:no-doc sequence-directive-keys
+  "Map keys that mark a map as a sequence merge directive in [[deep-merge-layers]]."
+  [:merge/append :merge/prepend])
+
+(defn ^:no-doc directive-error
+  "Builds the ex-info thrown when a merge directive in [[deep-merge-layers]] is malformed or cannot apply."
+  [message directive path existing]
+  (ex-info message {:merge/directive directive :merge/path path :merge/existing existing}))
+
+(defn ^:no-doc sequence-directive-key
+  "Returns the first of :merge/append or :merge/prepend present in value if it is a map, otherwise nil."
+  [value]
+  (when (map? value)
+    (some #(when (contains? value %) %) sequence-directive-keys)))
+
+(defn ^:no-doc apply-sequence-directive
+  "Resolves a `{:merge/append items}` or `{:merge/prepend items}` directive found at path against the
+   lower-precedence value at that path.
+
+   - path: Vector of keys to the directive's position.
+   - lower: The accumulated lower-precedence value (nil if absent).
+   - directive-map: The directive map.
+   - returns: items if lower is nil; a vector if lower is sequential; a set if lower is a set.
+   - throws: ex-info if the directive map has other keys, items is not sequential or a set, or lower is any
+             other kind of value."
+  [path lower directive-map]
+  (let [directive (sequence-directive-key directive-map)
+        items     (get directive-map directive)
+        fail      #(throw (directive-error % directive path lower))]
+    (cond
+      (not= 1 (count directive-map))             (fail "Merge directive must be the only key in its map")
+      (not (or (sequential? items) (set? items))) (fail "Merge directive items must be sequential or a set")
+      (nil? lower)                               items
+      (set? lower)                               (into lower items)
+      (not (sequential? lower))                  (fail "Merge directive cannot apply to existing value")
+      (= directive :merge/append)                (into (vec lower) items)
+      :else                                      (vec (concat items lower)))))
+
+(declare merge-with-directives)
+
+(defn ^:no-doc resolve-with-directives
+  "Resolves the higher-precedence value at path against the lower-precedence value, honouring merge
+   directives. Maps deep-merge (or reset), sequence directives append/prepend, anything else replaces."
+  [path lower higher]
+  (cond
+    (sequence-directive-key higher)  (apply-sequence-directive path lower higher)
+    (not (map? higher))              higher
+    (true? (:merge/reset higher))    (merge-with-directives path nil (dissoc higher :merge/reset))
+    :else                            (merge-with-directives path
+                                                            (when (map? lower) lower)
+                                                            (dissoc higher :merge/reset))))
+
+(defn ^:no-doc merge-with-directives
+  "Deep merges map higher over map lower (nil meaning no lower map), resolving merge directives at every
+   key of higher, including keys absent from lower (resolved against nil)."
+  [path lower higher]
+  (reduce-kv (fn [acc k v]
+               (assoc acc k (resolve-with-directives (conj path k) (get lower k) v)))
+             (or lower {})
+             higher))
+
 (defn deep-merge-layers
   "Deep merges an ordered sequence of partial maps (layers), lowest precedence first, folding them left-to-right
    with [[deep-merge]]. Typical use is layered configuration: defaults, then a config file, then overrides.
@@ -1294,8 +1355,31 @@ eg:
    wholesale; they are never concatenated. A non-nil, non-map layer follows [[deep-merge]]'s own semantics:
    it replaces everything accumulated so far, and is itself replaced by the next layer.
 
+   With `{:directives? true}` a map value at any depth (within maps) may instead be a merge directive,
+   resolved at each step of the fold against the value accumulated so far at the same path:
+
+   |directive|lower value nil/absent|lower vector/list/seq|lower set|
+   |---|---|---|---|
+   |`{:merge/append items}`|items, as given|`(into (vec lower) items)`|`(into lower items)`|
+   |`{:merge/prepend items}`|items, as given|`(vec (concat items lower))`|`(into lower items)` (sets are unordered, so prepend = append)|
+
+   `items` must be sequential or a set, and the directive key must be the only key in its map. A map
+   containing `:merge/reset true` discards the lower value at its path; the rest of its keys (with
+   `:merge/reset` removed and their own directives resolved against nil) become the new value.
+   `:merge/reset` with any other value is removed and the map merges normally. A directive in the first
+   layer, or under a key the lower layers lack, resolves against nil, so the result never contains a
+   `:merge/append`, `:merge/prepend` or `:merge/reset` key in any map. Directives are only recognised in map
+   positions: maps inside vectors, sets or lists are values like any other and are not inspected.
+
    - layers: Sequence of maps (or nils), lowest precedence first.
+   - opts: Optional map of options:
+       - :directives? If true, merge directives are resolved. Default false: directive-shaped maps are
+         ordinary maps, exactly as in the 1-arity.
    - returns: New map which is the deep merge of all non-nil layers. {} if layers is empty or all nil.
+   - throws: With directives enabled, ex-info with data
+             `{:merge/directive <:merge/append or :merge/prepend> :merge/path <vector of keys> :merge/existing <lower value>}`
+             if a directive map has other keys, its items are not sequential or a set, or the lower value is
+             neither nil, sequential nor a set (eg a scalar or map).
 
 eg:
 ```clojure
@@ -1306,10 +1390,31 @@ eg:
 =>
 
 {:port 80 :db {:host \"prod-db\" :pool 4} :tags [:b]}
+
+(deep-merge-layers [{:assets {:roots [\"./assets\" \"classpath:assets\"]}}
+                    {:assets {:roots {:merge/prepend [\"./studio-assets\"]}}}]
+                   {:directives? true})
+
+=>
+
+{:assets {:roots [\"./studio-assets\" \"./assets\" \"classpath:assets\"]}}
+
+(deep-merge-layers [{:db {:host \"localhost\" :pool 4}}
+                    {:db {:merge/reset true :url \"jdbc:...\"}}]
+                   {:directives? true})
+
+=>
+
+{:db {:url \"jdbc:...\"}}
 ```
 "
-  [layers]
-  (reduce deep-merge {} (remove nil? layers)))
+  ([layers]
+   (reduce deep-merge {} (remove nil? layers)))
+
+  ([layers {:keys [directives?]}]
+   (if directives?
+     (reduce #(resolve-with-directives [] %1 %2) {} (remove nil? layers))
+     (deep-merge-layers layers))))
 
 (defn ^:no-doc colliding-keys
   "Returns the set of keys that occur in more than one of the given maps."

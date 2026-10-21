@@ -3,7 +3,7 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 ### Added
-- `deep-merge-layers` in `common.core` - deep merges an ordered sequence of partial maps (lowest precedence first), dropping nil layers.
+- `deep-merge-layers` in `common.core` - deep merges an ordered sequence of partial maps (lowest precedence first), dropping nil layers. Optional `{:directives? true}` enables in-map merge directives: `{:merge/append items}` / `{:merge/prepend items}` onto lower vectors/sets, and `{:merge/reset true ...}` to discard the lower sub-map.
 - `classify-by-namespace` in `common.core` - returns the value of the first `[ns-prefix value]` entry whose prefix matches a keyword's (dotted) namespace.
 
 ### Changed
