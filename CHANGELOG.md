@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- `deep-merge-layers` in `common.core` - deep merges an ordered sequence of partial maps (lowest precedence first), dropping nil layers.
+- `classify-by-namespace` in `common.core` - returns the value of the first `[ns-prefix value]` entry whose prefix matches a keyword's (dotted) namespace.
+
 ### Changed
 - Add a new arity to `make-widget-async` to provide a different widget shape.
 

@@ -758,6 +758,51 @@
   (t/testing "Test not finding anything in  collection"
     (t/is (nil? (sut/find-last test-multiple :five)))))
 
+(def exit-code-table [[:cli 2] [:config 2] [:source 3] [:intake 4] [:construction 5]])
+
+(t/deftest test-classify-by-namespace
+  (t/testing "Exact namespace match"
+    (t/is (= 4 (sut/classify-by-namespace exit-code-table :intake/unknown-type 1)))
+    (t/is (= 2 (sut/classify-by-namespace exit-code-table :config/missing))))
+
+  (t/testing "Dotted sub-namespace matches its parent prefix"
+    (t/is (= 4 (sut/classify-by-namespace exit-code-table :intake.parse/bad-row 1)))
+    (t/is (= 5 (sut/classify-by-namespace exit-code-table :construction.a.b/x 1))))
+
+  (t/testing "A shared textual prefix without a dot does not match"
+    (t/is (= 1 (sut/classify-by-namespace exit-code-table :intakes/x 1)))
+    (t/is (= 1 (sut/classify-by-namespace exit-code-table :intake-extra/x 1))))
+
+  (t/testing "First matching entry wins"
+    (t/is (= :general
+             (sut/classify-by-namespace [[:intake :general] [:intake.bounds :specific]] :intake.bounds/x)))
+    (t/is (= :specific
+             (sut/classify-by-namespace [[:intake.bounds :specific] [:intake :general]] :intake.bounds/x))))
+
+  (t/testing "String, keyword and symbol prefixes"
+    (t/is (= :s (sut/classify-by-namespace [["intake" :s]] :intake/x)))
+    (t/is (= :k (sut/classify-by-namespace [[:intake :k]] :intake/x)))
+    (t/is (= :y (sut/classify-by-namespace [['intake :y]] :intake/x)))
+    (t/is (= :d (sut/classify-by-namespace [["intake.parse" :d]] :intake.parse/x))))
+
+  (t/testing "A map works as the table"
+    (t/is (= 3 (sut/classify-by-namespace {:source 3 :intake 4} :source/unreadable)))
+    (t/is (= :none (sut/classify-by-namespace {:source 3 :intake 4} :other/x :none))))
+
+  (t/testing "Unqualified keyword gives not-found"
+    (t/is (= 1 (sut/classify-by-namespace exit-code-table :intake 1))))
+
+  (t/testing "nil keyword gives not-found"
+    (t/is (= 1 (sut/classify-by-namespace exit-code-table nil 1)))
+    (t/is (nil? (sut/classify-by-namespace exit-code-table nil))))
+
+  (t/testing "Default not-found is nil"
+    (t/is (nil? (sut/classify-by-namespace exit-code-table :unknown/x)))
+    (t/is (nil? (sut/classify-by-namespace [] :intake/x))))
+
+  (t/testing "A falsey value in a matching entry is returned, not treated as no match"
+    (t/is (false? (sut/classify-by-namespace [[:intake false]] :intake/x :nf)))))
+
 (t/deftest test-find-index-by-pred
   (t/testing "Test a predicate that just check for a special key value"
     (t/is (= 2
@@ -850,6 +895,45 @@
     (t/is (= {:one 1 :two 4 :nested {:three 4 :nested {:four 5 :five 5}}}
              (sut/deep-merge {:one 1 :two 2 :nested {:three 3 :nested {:four 4 :five 5}}}
                              {:two 4 :nested {:three 4 :nested {:four 5}}})))))
+
+(t/deftest test-deep-merge-layers
+  (t/testing "Later layers take precedence over earlier ones"
+    (t/is (= {:a 3 :b 2 :c 4}
+             (sut/deep-merge-layers [{:a 1 :b 2} {:a 2} {:a 3 :c 4}]))))
+
+  (t/testing "Nested maps are merged recursively"
+    (t/is (= {:db {:host "prod" :pool 4 :opts {:ssl true :timeout 10}}}
+             (sut/deep-merge-layers [{:db {:host "local" :pool 4 :opts {:timeout 10}}}
+                                     {:db {:host "prod" :opts {:ssl true}}}]))))
+
+  (t/testing "nil layers are dropped wherever they appear"
+    (t/is (= {:a 2 :b 1}
+             (sut/deep-merge-layers [nil {:a 1 :b 1} nil {:a 2} nil]))))
+
+  (t/testing "An explicit nil value inside a layer replaces the lower value"
+    (t/is (= {:a nil :b 1}
+             (sut/deep-merge-layers [{:a 1 :b 1} {:a nil}])))
+    (t/is (= {:nested nil}
+             (sut/deep-merge-layers [{:nested {:x 1}} {:nested nil}]))))
+
+  (t/testing "Vectors and sets are replaced wholesale, not concatenated"
+    (t/is (= {:v [3] :s #{:z} :n {:v [4]}}
+             (sut/deep-merge-layers [{:v [1 2] :s #{:x :y} :n {:v [1]}}
+                                     {:v [3] :s #{:z} :n {:v [4]}}]))))
+
+  (t/testing "Empty or all-nil input gives an empty map"
+    (t/is (= {} (sut/deep-merge-layers [])))
+    (t/is (= {} (sut/deep-merge-layers nil)))
+    (t/is (= {} (sut/deep-merge-layers [nil nil]))))
+
+  (t/testing "A single layer is returned unchanged"
+    (let [layer {:a 1 :n {:b [1 2] :c nil}}]
+      (t/is (= layer (sut/deep-merge-layers [layer])))
+      (t/is (= layer (sut/deep-merge-layers [nil layer nil])))))
+
+  (t/testing "A non-map layer follows deep-merge semantics"
+    (t/is (= 5 (sut/deep-merge-layers [{:a 1} 5])))
+    (t/is (= {:b 2} (sut/deep-merge-layers [{:a 1} 5 {:b 2}])))))
 
 (defn- thrown-ex
   "Returns the exception thrown by calling f, or nil if it returns normally."

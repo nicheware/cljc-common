@@ -11,8 +11,8 @@ There are groups of functions within common.core that deal with:
 |integer functions| [[range-of-range]], [[negate]], [[snap]], [[apportion]]|
 |general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]], [[split-while-cumulative]]|
 |sequence patterns| [[maximal-runs]], [[run-length-encode]], [[run-length-decode]], [[find-repeating-motif]], [[cycle-to-length]]|
-|collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
-|map utility|  [[deep-merge]], [[merge-disjoint]], [[dissoc-in]], [[index-by]], [[sort-map-by-key]]|
+|collection searching| [[find-first]], [[find-last]], [[classify-by-namespace]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
+|map utility|  [[deep-merge]], [[deep-merge-layers]], [[merge-disjoint]], [[dissoc-in]], [[index-by]], [[sort-map-by-key]]|
 |map transform| [[map-values]], [[map-keys]], [[map-all-keys]]|
 |map filtering| [[filter-val]], [[filter-key]], [[filter-remove-val]], [[remove-nil]], [[remove-empty]]|
 |nested data| [[dissoc-all-keys]], [[paths-where]]|
@@ -1039,6 +1039,45 @@ eg:
   (debug "find-last" coll)
   (last (filter pred coll)))
 
+(defn ^:no-doc namespace-matches-prefix?
+  "True if the namespace string ns-str equals prefix, or starts with prefix followed by \".\"."
+  [ns-str prefix]
+  (or (= ns-str prefix)
+      (str/starts-with? ns-str (str prefix "."))))
+
+(defn classify-by-namespace
+  "Classify a qualified keyword by its namespace, using an ordered table of namespace prefixes.
+
+   The keyword's namespace matches a prefix when it equals the prefix, or starts with the prefix followed by
+   \".\" (a dotted namespace hierarchy). So \"intake\" matches `:intake/x` and `:intake.parse/x`, but not
+   `:intakes/x`. The first matching entry in the table wins, so list more specific prefixes first.
+
+   - table: Ordered seqable of `[ns-prefix value]` pairs, eg a vector of pairs (a map also works when order
+            does not matter). ns-prefix may be a string (used as-is) or a keyword/symbol, whose `name` is
+            used (eg `:intake` => \"intake\"; any namespace part of the prefix itself is ignored).
+   - kw: Keyword to classify.
+   - not-found: Value returned when kw is nil, unqualified, or matches no entry. Defaults to nil.
+   - returns: The value of the first table entry whose prefix matches the namespace of kw, else not-found.
+
+eg: mapping a diagnostic id to a CLI exit code
+```clojure
+(classify-by-namespace [[:cli 2] [:config 2] [:source 3] [:intake 4] [:construction 5]]
+                       :intake/unknown-type
+                       1)
+=> 4
+
+;; Exact-id exceptions are handled by the caller:
+(or (get exact-ids id) (classify-by-namespace table id 1))
+```
+"
+  ([table kw] (classify-by-namespace table kw nil))
+  ([table kw not-found]
+   (if-let [kw-ns (some-> kw namespace)]
+     (if-let [[_ value] (find-first table (fn [[prefix _]] (namespace-matches-prefix? kw-ns (name prefix))))]
+       value
+       not-found)
+     not-found)))
+
 (defn find-indexes-by-pred
   "Find all the indexes of the elements in the collection matching the given predicate.
 
@@ -1244,6 +1283,33 @@ eg:
   (if (every? map? maps)
     (apply merge-with deep-merge maps)
     (last maps)))
+
+(defn deep-merge-layers
+  "Deep merges an ordered sequence of partial maps (layers), lowest precedence first, folding them left-to-right
+   with [[deep-merge]]. Typical use is layered configuration: defaults, then a config file, then overrides.
+
+   A nil layer is treated as absent (eg a config file that was not supplied) and is dropped. A nil value
+   *inside* a layer is not special: as with [[deep-merge]] it replaces the lower-precedence value (pre-filter
+   layers with [[remove-nil]] if that is not wanted). Vectors, sets and other non-map values replace
+   wholesale; they are never concatenated. A non-nil, non-map layer follows [[deep-merge]]'s own semantics:
+   it replaces everything accumulated so far, and is itself replaced by the next layer.
+
+   - layers: Sequence of maps (or nils), lowest precedence first.
+   - returns: New map which is the deep merge of all non-nil layers. {} if layers is empty or all nil.
+
+eg:
+```clojure
+(deep-merge-layers [{:port 80 :db {:host \"localhost\" :pool 4} :tags [:a]}
+                    nil
+                    {:db {:host \"prod-db\"} :tags [:b]}])
+
+=>
+
+{:port 80 :db {:host \"prod-db\" :pool 4} :tags [:b]}
+```
+"
+  [layers]
+  (reduce deep-merge {} (remove nil? layers)))
 
 (defn ^:no-doc colliding-keys
   "Returns the set of keys that occur in more than one of the given maps."
