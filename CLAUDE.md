@@ -53,7 +53,10 @@ All namespaces live under `nicheware.platform.utilities.common`:
   transforms (`map-all-keys` optionally recursing into sequentials/sets), `merge-disjoint` (merge that throws
   on any key collision), `sort-map-by-key` (vector of entries ordered by key), nested-data walking (`dissoc-all-keys` with removal counts, `paths-where` returning
   Malli-style paths), searching, sequence patterns (`maximal-runs`, run-length encoding, `find-repeating-motif`,
-  `cycle-to-length`), string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
+  `cycle-to-length`), `split-while-cumulative` (split a collection where the running total of `(f item)` first
+  exceeds a limit, eg line/page breaking), `apportion` (largest-remainder split of a total into whole multiples
+  of a unit, proportional to weights and summing exactly to the total; exact on the JVM for Long/BigInt/Ratio
+  inputs, counts of unit times a double in ClojureScript), string helpers, and the cross-platform primitives `rand-uuid`, `parse-int`,
   `current-time-millis`, `edn-read`). Also `canonical-edn-str` — a deterministic EDN printer for content
   digests: `=` values always print identically (sorted map entries/set elements, every sequential as a vector,
   integers without `N`, BigDecimals trailing-zero stripped, UTC millisecond `#inst`, print vars and metadata
@@ -71,6 +74,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
 - `graphics` plus `graphics.color`, `graphics.line`, `graphics.interpolate` — drawing/geometry maths.
   `graphics` also converts curves to cubic Bezier path segments (`[:move p]`/`[:line p]`/`[:cubic c1 c2 p]`):
   `arc->cubics` (SVG `A`-command endpoint arcs, per SVG 1.1 F.6.5/F.6.6, y-down) and `ellipse->cubics`.
+  Size fitting includes `fit-to-dimensions-bounded` (as `fit-to-dimensions` but also capped by optional
+  `{:width :height}` bounds, still centred in the full container).
   It also has an affine-matrix vocabulary shared by SVG `transform` and PDF `cm` (`[a b c d e f]`;
   `compose-matrix` uses SVG transform-list order, rightmost applied first; `transform->matrix` accepts the
   legacy `{:x :y :scale}` or `{:translate :scale :rotate}`), bounding boxes `{:x :y :width :height}` (nil for

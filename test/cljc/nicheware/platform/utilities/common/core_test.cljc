@@ -290,6 +290,68 @@
     (t/is (= 1
              (sut/negate -1)))))
 
+(t/deftest test-apportion
+  (t/testing "Whole parts summing exactly to total"
+    (t/are [expected total weights] (= expected (sut/apportion total weights))
+      [4 3 3]    10  [1 1 1]
+      [17 33 50] 100 [1 2 3]
+      [5 5]      10  [1 1]
+      [10]       10  [7]
+      [4 0 3]    7   [1 0 1]
+      [0 0 0]    0   [1 2 3]
+      [0 0]      0   [0 0]
+      []         0   []
+      []         0   nil))
+
+  (t/testing "Ties go to the lower index, deterministically"
+    (t/is (= [2 2 1 1] (sut/apportion 6 [1 1 1 1])))
+    (t/is (= [1 0 0] (sut/apportion 1 [1 1 1]))))
+
+  (t/testing "Unit granularity"
+    (t/is (= [4 4 2] (sut/apportion 10 [1 1 1] 2)))
+    (t/is (= [0 10] (sut/apportion 10 [1 9] 5))))
+
+  (t/testing "Property: sums to total, proportional within one unit, zero weights get zero"
+    (doseq [[total weights] [[100 [3 1 4 1 5 9 2 6]] [17 [0 5 0 5 1]] [1000 [1 1 1 1 1 1 1]] [3 [10 20 30 40]]]]
+      (let [parts      (sut/apportion total weights)
+            weight-sum (reduce + weights)]
+        (t/is (= total (reduce + parts)))
+        (t/is (every? (fn [[part weight]]
+                        (< (Math/abs (double (- part (/ (* total weight) weight-sum)))) 1))
+                      (map vector parts weights)))
+        (t/is (every? (fn [[part weight]] (or (pos? weight) (zero? part)))
+                      (map vector parts weights))))))
+
+  #?(:clj
+     (t/testing "Exact inputs stay exact on the JVM"
+       (t/is (= [567/5 1134/5] (sut/apportion 3402/10 [1 2] 1/10)))
+       (t/is (= 3402/10 (reduce + (sut/apportion 3402/10 [1 2] 1/10))))
+       (t/is (= [1/2 1/4 1/4] (sut/apportion 1 [1/3 1/3 1/3] 1/4)))
+       (t/is (every? #(instance? Long %) (sut/apportion 100 [1/3 2/3])))
+       (t/is (every? #(instance? Long %) (sut/apportion 100N [1 2 3])))))
+
+  (t/testing "Floating point inputs work in whole counts of unit"
+    (let [parts (sut/apportion 340.2 [1 2] 0.1)]
+      (t/is (= 2 (count parts)))
+      (t/is (< (Math/abs (- 340.2 (reduce + parts))) 1e-9))
+      (t/is (< (Math/abs (- 113.4 (first parts))) 1e-9))))
+
+  (t/testing "Invalid arguments"
+    (doseq [args [[10 [1 -1]]
+                  [10 [0 0]]
+                  [10 []]
+                  [10 nil]
+                  [10 [1 1] 0]
+                  [10 [1 1] -1]
+                  [10 [1 1] 3]
+                  [-10 [1 1]]
+                  [10 [1 :a]]
+                  [10 #{1 2}]
+                  [nil [1 2]]]]
+      (t/is #?(:clj  (thrown? IllegalArgumentException (apply sut/apportion args))
+               :cljs (thrown? js/Error (apply sut/apportion args)))
+            (pr-str args)))))
+
 
 
 ;; =========================== General sequence functions =============================
@@ -336,6 +398,35 @@
   (t/testing "Merge some values"
     (t/is (= [1 20 3 40 5]
              (sut/selective-merge [1 2 3 4 5] [10 20 30 40 50] [nil true false true false])))))
+
+(t/deftest test-split-while-cumulative
+  (t/testing "Split where running total first exceeds limit"
+    (t/are [expected limit coll] (= expected (sut/split-while-cumulative identity limit coll))
+      [[3 4 2] [5 1]]   10 [3 4 2 5 1]
+      [[3 4 3] [1]]     10 [3 4 3 1]
+      [[1 2 3] []]      10 [1 2 3]
+      [[] [5 1]]        2  [5 1]
+      [[] []]           10 []
+      [[] []]           10 nil
+      [[0 0] []]        0  [0 0]))
+
+  (t/testing "Stops at first item exceeding, does not skip ahead"
+    (t/is (= [[4] [7 1 1]] (sut/split-while-cumulative identity 5 [4 7 1 1]))))
+
+  (t/testing "Function of each item, any collection"
+    (t/is (= [["one" "two"] ["three"]] (sut/split-while-cumulative count 8 ["one" "two" "three"])))
+    (t/is (= [[{:h 2} {:h 3}] [{:h 4}]] (sut/split-while-cumulative :h 5 (list {:h 2} {:h 3} {:h 4}))))
+    (t/is (= [[1 2] [3]] (sut/split-while-cumulative identity 3.5 (range 1 4)))))
+
+  (t/testing "Returns vectors"
+    (let [[prefix suffix] (sut/split-while-cumulative identity 3 (list 1 2 3 4))]
+      (t/is (vector? prefix))
+      (t/is (vector? suffix))))
+
+  #?(:clj
+     (t/testing "Exact ratios on the JVM"
+       (t/is (= [[1/2 1/3 1/6] [1]] (sut/split-while-cumulative identity 1 [1/2 1/3 1/6 1])))
+       (t/is (= [[1/3 1/3] [1/2]] (sut/split-while-cumulative identity 1 [1/3 1/3 1/2]))))))
 
 (t/deftest test-is-empty?
   (t/testing "Test simple empty vector"

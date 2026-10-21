@@ -61,6 +61,36 @@
     (t/is (= {:width 58.0 :height 58 :x 0.0 :y 0 :scale 29.0}
              (sut/fit-to-dimensions {:width 58 :height 58} {:width 2 :height 2})))))
 
+(t/deftest test-fit-to-dimensions-bounded
+  (t/testing "No effective bounds gives the fit-to-dimensions result"
+    (let [container {:width 100 :height 100}
+          shape     {:width 10 :height 20}
+          expected  (sut/fit-to-dimensions container shape)]
+      (t/is (= expected (sut/fit-to-dimensions-bounded container shape nil)))
+      (t/is (= expected (sut/fit-to-dimensions-bounded container shape {})))
+      (t/is (= expected (sut/fit-to-dimensions-bounded container shape {:width nil :height nil})))
+      (t/is (= expected (sut/fit-to-dimensions-bounded container shape {:width 500 :height 100})))))
+
+  (t/testing "Height bound limits a tall shape, centred in the container"
+    (t/is (= {:width 25.0 :height 50 :x 37.5 :y 25.0 :scale 2.5}
+             (sut/fit-to-dimensions-bounded {:width 100 :height 100} {:width 10 :height 20} {:height 50}))))
+
+  (t/testing "Width bound limits a tall shape"
+    (t/is (= {:width 20 :height 40.0 :x 40.0 :y 30.0 :scale 2.0}
+             (sut/fit-to-dimensions-bounded {:width 100 :height 100} {:width 10 :height 20} {:width 20}))))
+
+  (t/testing "Bound on the non-limiting axis has no effect"
+    (t/is (= (sut/fit-to-dimensions {:width 100 :height 100} {:width 50 :height 10})
+             (sut/fit-to-dimensions-bounded {:width 100 :height 100} {:width 50 :height 10} {:height 50}))))
+
+  (t/testing "Both bounds, the tighter one governs"
+    (t/is (= {:width 40 :height 20.0 :x 30.0 :y 40.0 :scale 0.4}
+             (sut/fit-to-dimensions-bounded {:width 100 :height 100} {:width 100 :height 50} {:width 40 :height 30}))))
+
+  (t/testing "Diagram in a text frame, capped at a maximum width"
+    (t/is (= {:width 300.0 :height 150 :x 100.0 :y 0 :scale 3.0}
+             (sut/fit-to-dimensions-bounded {:width 500 :height 150} {:width 100 :height 50} {:width 300 :height 468})))))
+
 (t/deftest test-position-to-dimensions
   (t/testing "Position within long rectangle"
     (t/is (= {:width 173, :height 58, :x 72.0, :y 0, :scale 29.0}

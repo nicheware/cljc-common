@@ -8,8 +8,8 @@ There are groups of functions within common.core that deal with:
 |---|---|
 |slicing collections| [[slice]], [[slice-wrap]], [[remove-slice]], [[remove-slice-wrap]], [[filter-count]]|
 |collection inserts| [[insert-before]], [[insert-after]], [[replace-at]]|
-|integer functions| [[range-of-range]], [[negate]], [[snap]]|
-|general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]]|
+|integer functions| [[range-of-range]], [[negate]], [[snap]], [[apportion]]|
+|general sequence functions| [[rotate-seq]], [[selective-merge]], [[pad-with]], [[seq-of]], [[split-while-cumulative]]|
 |sequence patterns| [[maximal-runs]], [[run-length-encode]], [[run-length-decode]], [[find-repeating-motif]], [[cycle-to-length]]|
 |collection searching| [[find-first]], [[find-last]], [[find-index]], [[find-last-index]], [[find-nth]], [[replace-leading-nils]]|
 |map utility|  [[deep-merge]], [[merge-disjoint]], [[dissoc-in]], [[index-by]], [[sort-map-by-key]]|
@@ -495,6 +495,8 @@ eg
 
 ;; ============================= Number functions ==============================
 
+(declare throw-illegal-arg)
+
 (defn range-of-range
   "Returns a lazy clojure range using the given ```{:start ... :end}``` range map
   where the values are inclusive (unlike Clojure range which is exclusive of the end)
@@ -523,6 +525,143 @@ eg
   - returns: snapped integer"
   [number]
   (int (if (> number 0) (Math/ceil number) (Math/floor number))))
+
+(defn ^:no-doc exact-number?
+  "True if value is an exact number (integer or Ratio). Always false in ClojureScript,
+   which has no exact non-integer type. (Mirrors common.math, which depends on this namespace.)"
+  [value]
+  #?(:clj (or (integer? value) (ratio? value))
+     :cljs false))
+
+(defn ^:no-doc finite-numeric?
+  "True if value is any number (exact or floating point) that is neither NaN nor infinite."
+  [value]
+  (and (number? value)
+       #?(:clj (or (exact-number? value) (Double/isFinite (double value)))
+          :cljs (js/isFinite value))))
+
+(defn ^:no-doc normalise-whole
+  "Converts a BigInt that fits in a long to a Long (ratio arithmetic returns whole results as BigInt),
+   leaving all other values unchanged. (Mirrors common.math/normalise-exact.)"
+  [value]
+  #?(:clj (if (and (instance? clojure.lang.BigInt value)
+                   (nil? (.bipart ^clojure.lang.BigInt value)))
+            (long value)
+            value)
+     :cljs value))
+
+(defn ^:no-doc non-negative-floor
+  "Floor of a non-negative number. On the JVM a Ratio is floored with integer arithmetic only, so
+   exact values never pass through a double."
+  [value]
+  #?(:clj (cond
+            (ratio? value) (quot (numerator value) (denominator value))
+            (integer? value) value
+            :else (Math/floor value))
+     :cljs (Math/floor value)))
+
+(def ^:no-doc unit-count-tolerance
+  "Relative tolerance used, for non-exact (double) inputs, when deciding whether total is a whole
+   number of units: 340.2 / 0.1 is 3401.9999999999995 in floating point."
+  1e-9)
+
+(defn ^:no-doc whole-unit-count
+  "Number of whole units in total, or nil when total is not a whole multiple of unit.
+   Exact inputs (JVM only) are tested exactly; otherwise within [[unit-count-tolerance]]."
+  [total unit exact?]
+  (if exact?
+    (let [quotient (/ total unit)]
+      (when (integer? quotient) quotient))
+    (let [quotient (/ (double total) (double unit))
+          nearest  (Math/round quotient)]
+      (when (<= (Math/abs (- quotient nearest))
+                (* unit-count-tolerance (max 1 (Math/abs quotient))))
+        nearest))))
+
+(defn ^:no-doc largest-remainder-counts
+  "Hamilton apportionment of n whole units across the weights (whose sum must be positive).
+
+  - n: non-negative whole number of units.
+  - weights: vector of non-negative numbers.
+  - returns: vector of whole unit counts, one per weight, summing to n. Each quota n*w/sum is floored,
+    then the leftover units go one each to the positive weights with the largest remainders, ties to
+    the lower index (sort-by is stable)."
+  [n weights]
+  (let [weight-sum (reduce + weights)
+        quotas     (mapv #(/ (* n %) weight-sum) weights)
+        floors     (mapv non-negative-floor quotas)
+        leftover   (long (- n (reduce + floors)))
+        winners    (->> (range (count weights))
+                        (filter #(pos? (nth weights %)))
+                        (sort-by #(- (nth quotas %) (nth floors %)) #(compare %2 %1))
+                        (take leftover)
+                        set)]
+    (vec (map-indexed (fn [index unit-floor] (if (winners index) (inc unit-floor) unit-floor)) floors))))
+
+(defn ^:no-doc validate-apportion-args
+  "Throws an illegal argument exception unless the [[apportion]] arguments are valid."
+  [total weights unit]
+  (cond
+    (not (and (finite-numeric? total) (not (neg? total))))
+    (throw-illegal-arg "apportion total must be a non-negative finite number")
+
+    (not (and (finite-numeric? unit) (pos? unit)))
+    (throw-illegal-arg "apportion unit must be a positive finite number")
+
+    (not (or (nil? weights) (sequential? weights)))
+    (throw-illegal-arg "apportion weights must be a sequential collection of numbers")
+
+    (not (every? #(and (finite-numeric? %) (not (neg? %))) weights))
+    (throw-illegal-arg "apportion weights must all be non-negative finite numbers")
+
+    (and (not (zero? total)) (not (some pos? weights)))
+    (throw-illegal-arg "apportion weights must include a positive weight when total is non-zero")))
+
+(defn apportion
+  "Divides total into parts proportional to the weights, each part a whole multiple of unit and the parts
+   summing exactly to total, using the largest-remainder (Hamilton) method: each weight's quota of the
+   `total / unit` units is floored, then the leftover units are handed out one each to the largest
+   remainders, ties going to the lower index, so the result is deterministic. A zero weight always gets 0.
+
+   Use case: table column widths that must sum exactly to the frame width.
+
+  - total: non-negative number to divide. Must be a whole multiple of unit.
+  - weights: sequential collection of non-negative numbers, one per part. Empty or nil returns `[]`
+    (only valid when total is zero). When total is zero every part is zero, even if all weights are zero.
+  - unit: optional positive number, the granularity of every part, default 1.
+  - returns: vector of parts, one per weight, in weight order.
+    On the JVM, when total, unit and every weight are exact (Long, BigInt, Ratio) the computation uses
+    rational arithmetic only and the parts are exact, summing exactly to total: a Long when whole
+    (normalised from BigInt where it fits), otherwise a Ratio.
+    Otherwise (always in ClojureScript, which has no ratios) the work is done in whole counts of unit,
+    multiplied back by unit at the end, so the counts are exact but the parts are doubles whose sum equals
+    total only to floating point precision (eg `(* 3 0.1)` is `0.30000000000000004`). total is accepted as
+    a whole multiple of unit within a relative tolerance of 1e-9.
+  - throws: IllegalArgumentException (js/Error in ClojureScript, see [[throw-illegal-arg]]) if total is
+    negative or not finite, unit is not a positive finite number, any weight is negative or not a finite
+    number, all weights are zero (or there are none) while total is non-zero, or total is not a whole
+    multiple of unit.
+
+eg:
+```clojure
+(apportion 10 [1 1 1])           => [4 3 3]
+(apportion 100 [1 2 3])          => [17 33 50]
+(apportion 7 [1 0 1])            => [4 0 3]
+(apportion 3402/10 [1 2] 1/10)   => [567/5 1134/5]   ; 113.4 + 226.8 = 340.2, JVM
+(apportion 10 [1 1 1] 2)         => [4 4 2]
+```
+"
+  ([total weights] (apportion total weights 1))
+  ([total weights unit]
+   (validate-apportion-args total weights unit)
+   (let [weights (vec weights)
+         exact?  (every? exact-number? (into [total unit] weights))
+         n       (or (whole-unit-count total unit exact?)
+                     (throw-illegal-arg "apportion total must be a whole multiple of unit"))
+         counts  (if (zero? n)
+                   (vec (repeat (count weights) 0))
+                   (largest-remainder-counts n (if exact? weights (mapv double weights))))]
+     (mapv #(normalise-whole (* % unit)) counts))))
 
 
 ;; =========================== General sequence functions =============================
@@ -592,6 +731,39 @@ eg:
   [fst snd selections]
   (map #(or (and %3 %2) %1) fst snd selections))
 
+(defn split-while-cumulative
+  "Splits a collection at the point where the running total of `(f item)` would first exceed limit.
+
+   Unlike `split-with`, the decision depends on all the items before, not just the current one, which suits
+   line breaking, page filling, or splitting a table's rows at a page boundary. It stops at the first item
+   that would exceed the limit and does not skip ahead to later, smaller items.
+
+  - f: function of one item returning its number (eg width or height) to accumulate.
+  - limit: number, the maximum running total of the prefix.
+  - coll: collection to split. nil or empty returns `[[] []]`.
+  - returns: `[prefix suffix]`, both vectors, where prefix is the longest prefix of coll whose running total
+    of `(f item)` is <= limit and suffix is the rest of coll. prefix is `[]` if the first item alone exceeds
+    limit. The total is accumulated with `+`, so on the JVM exact numbers (Long, Ratio) stay exact.
+
+eg:
+```clojure
+(split-while-cumulative identity 10 [3 4 2 5 1])   => [[3 4 2] [5 1]]
+(split-while-cumulative count 8 [\"one\" \"two\" \"three\"]) => [[\"one\" \"two\"] [\"three\"]]
+(split-while-cumulative identity 1 [1/2 1/3 1/6 1]) => [[1/2 1/3 1/6] [1]]
+(split-while-cumulative identity 2 [5 1])         => [[] [5 1]]
+```
+"
+  [f limit coll]
+  (loop [prefix    []
+         total     0
+         remaining (seq coll)]
+    (if remaining
+      (let [new-total (+ total (f (first remaining)))]
+        (if (<= new-total limit)
+          (recur (conj prefix (first remaining)) new-total (next remaining))
+          [prefix (vec remaining)]))
+      [prefix []])))
+
 
 (defn is-empty?
   "Returns true for nil or empty collection. Any non-seqable data type will not be true.
@@ -634,8 +806,6 @@ eg:
 
 
 ;; =========================== Sequence pattern functions =============================
-
-(declare throw-illegal-arg)
 
 (defn maximal-runs
   "Finds the maximal runs of consecutive elements whose `(f x)` values are equal (`=`), with their positions.

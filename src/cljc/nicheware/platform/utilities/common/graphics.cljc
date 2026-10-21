@@ -6,7 +6,7 @@ There are groups of functions within the graphics namespace that deal with:
 
 |Function group|Functions|
 |---|---|
-|size fitting| [[aspect-ratio]], [[fit-to-height]], [[fit-to-width]], [[fit-to-dimensions]], [[position-to-dimensions]], [[reverse-transform]]|
+|size fitting| [[aspect-ratio]], [[fit-to-height]], [[fit-to-width]], [[fit-to-dimensions]], [[fit-to-dimensions-bounded]], [[position-to-dimensions]], [[reverse-transform]]|
 |shapes| [[update-fill-colors]], [[translate-shapes]]|
 |curve conversion| [[arc->cubics]], [[ellipse->cubics]]|
 |affine transforms| [[identity-matrix]], [[apply-matrix]], [[compose-matrix]], [[translate-matrix]], [[scale-matrix]], [[rotate-matrix]], [[transform->matrix]], [[invert-matrix]]|
@@ -217,6 +217,59 @@ where:
     ;; Must fit to  width
     (fit-to-width containing-dimensions dimensions-to-fit)
     (fit-to-height containing-dimensions dimensions-to-fit)))
+
+
+(defn ^:no-doc bounded-dimensions
+  "The intersection of dimensions and bounds: each axis of dimensions reduced to the bound on that axis,
+   where a nil bound (or nil bounds) leaves the axis unchanged."
+  [{:keys [width height] :as dimensions} {max-width :width max-height :height :as bounds}]
+  {:width  (if max-width (min width max-width) width)
+   :height (if max-height (min height max-height) height)})
+
+(defn ^:no-doc centre-offset
+  "Offset needed to centre an inner extent within an outer extent, 0 when they are equal."
+  [outer inner]
+  (if (= outer inner) 0 (math/div (- outer inner) 2)))
+
+(defn fit-to-dimensions-bounded
+  "Same as [[fit-to-dimensions]], but the shape is fitted within the intersection of containing-dimensions
+   and bounds, so it never exceeds the bound on either axis, while still being centred within the full
+   containing-dimensions.
+
+   Use case: fit a diagram to a text frame, but never wider than a maximum width nor taller than a maximum height.
+
+  - containing-dimensions: outer dimensions in which the shape is positioned, ```{:width :height}```
+  - dimensions-to-fit: dimension defining the aspect ratio of the final dimension to fit, ```{:width :height}```
+  - bounds: maximum dimensions of the fitted shape, ```{:width :height}```, either key optional.
+    A nil or absent key leaves that axis unbounded (limited only by containing-dimensions).
+    nil bounds, or bounds no smaller than containing-dimensions, give exactly the [[fit-to-dimensions]] result.
+  - returns: a map ```{:width :height :x :y :scale}```
+
+where:
+
+  - width and height will retain the aspect ratio of dimensions-to-fit, and fill either the width or height
+    of the bounded area (containing-dimensions reduced to bounds),
+  - x and y will centre the fitted shape within containing-dimensions (not within the bounded area),
+  - scale will be the scale factor to apply to width and height of dimensions-to-fit
+    to get the new returned width and height.
+
+  eg:
+```clojure
+(fit-to-dimensions-bounded {:width 100 :height 100} {:width 10 :height 20} {:height 50})
+=>
+{:width 25.0, :height 50, :x 37.5, :y 25.0, :scale 2.5}
+
+(fit-to-dimensions-bounded {:width 100 :height 100} {:width 10 :height 20} {:width 20})
+=>
+{:width 20, :height 40.0, :x 40.0, :y 30.0, :scale 2.0}
+```
+"
+  [containing-dimensions dimensions-to-fit bounds]
+  (let [bounded (bounded-dimensions containing-dimensions bounds)
+        fitted  (fit-to-dimensions bounded dimensions-to-fit)]
+    (-> fitted
+        (update :x + (centre-offset (:width containing-dimensions) (:width bounded)))
+        (update :y + (centre-offset (:height containing-dimensions) (:height bounded))))))
 
 
 (defn position-to-dimensions
