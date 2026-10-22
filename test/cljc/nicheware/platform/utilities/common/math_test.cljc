@@ -23,17 +23,42 @@
 
   (t/testing "Round an int"
     (t/is (= 2
-             (sut/round 2)))))
+             (sut/round 2))))
+
+  #?(:clj
+     (t/testing "JVM: round a Ratio exactly, ties toward +infinity like Math/round"
+       (t/is (= 3 (sut/round 5/2)))
+       (t/is (= -2 (sut/round -5/2)))
+       (t/is (= 1 (sut/round 2/3)))
+       (t/is (= Long (type (sut/round 5/2))) "Whole result is a Long, not a BigInt")
+       (doseq [n (range -200 201)
+               :let [value (/ n 100)]]
+         (t/is (= (Math/round (float value)) (sut/round value)) (str "Agrees with the float path for " value))))))
 
 (t/deftest test-ceil
   (t/testing "Ensure returned ceiling"
     (t/is (= 2
-             (sut/ceil 1.2)))))
+             (sut/ceil 1.2))))
+
+  #?(:clj
+     (t/testing "JVM: ceiling of exact values"
+       (t/is (= 2 (sut/ceil 3/2)))
+       (t/is (= -1 (sut/ceil -3/2)))
+       (t/is (= 3 (sut/ceil 3)))
+       (t/is (= Long (type (sut/ceil 3/2)))))))
 
 (t/deftest test-floor
   (t/testing "Ensure returned floor"
     (t/is (= 1
-             (sut/floor 1.8)))))
+             (sut/floor 1.8))))
+
+  #?(:clj
+     (t/testing "JVM: floor of exact values"
+       (t/is (= 1 (sut/floor 3/2)))
+       (t/is (= -2 (sut/floor -3/2)))
+       (t/is (= -1 (sut/floor -1/2)))
+       (t/is (= 3 (sut/floor 3)))
+       (t/is (= Long (type (sut/floor -3/2)))))))
 
 
 (t/deftest test-div
@@ -52,7 +77,15 @@
 
   (t/testing "Ensure absolute for positive"
     (t/is (= 1
-             (sut/diff 2 1)))))
+             (sut/diff 2 1))))
+
+  (t/testing "Floating point difference"
+    (t/is (= 1.5 (sut/diff 0.5 2.0))))
+
+  #?(:clj
+     (t/testing "JVM: Ratio difference stays exact (Math/abs would throw)"
+       (t/is (= 3/2 (sut/diff 1/2 2)))
+       (t/is (= 1/2 (sut/diff 0 -1/2))))))
 
 (t/deftest test-mult
   (t/testing "Multiply with 4 decimal places"

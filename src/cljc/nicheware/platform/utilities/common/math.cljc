@@ -18,6 +18,8 @@ On the JVM the exact-fraction functions keep exact values (Long, BigInt, Ratio) 
 no computation passes through a double, so they can be used where every intermediate value
 must be an exact rational (eg measurements in 1/8 inch increments).
 ClojureScript has no ratio type, so there the same functions work on (and return) doubles.
+[[round]], [[ceil]], [[floor]] and [[diff]] follow the same rule: given an exact value on the JVM they
+never pass through a double.
 
 ```clojure
 (round-to-increment 13/36 1/8 :up)        => 3/8
@@ -50,19 +52,26 @@ eg:
   (let [factor (Math/pow 10 precision)]
     (/ (Math/round (* num factor)) factor)))
 
+(declare exact? normalise-exact #?@(:clj [exact-floor exact-ceil]))
+
 (defn round
   "Rounds a value, handling floats and ints and always returning an int.
 
-  - value: Value to be rounded. Can be float or int.
-  - returns: rounded value as an int."
+  - value: Value to be rounded. Can be float, int or (Clojure only) Ratio.
+  - returns: rounded value as an int. Ties (half way) round toward +infinity, eg -5/2 => -2.
+    On the JVM an exact value (Long, BigInt, Ratio) is rounded with integer arithmetic only, no double is used."
   [value]
-  (Math/round (float value)))
+  (if (exact? value)
+    #?(:clj (normalise-exact (exact-floor (+ value 1/2)))
+       :cljs nil)
+    (Math/round (float value))))
 
 (defn ceil
   "Ceiling call which converts return value to int to simplify later type checking.
 
   - value: Value as source for ceiling.
   - returns: ceiling of value as an int.
+    On the JVM an exact value (Long, BigInt, Ratio) uses integer arithmetic only, no double is used.
 
 eg:
 ```clojure
@@ -70,13 +79,17 @@ eg:
 ```
 "
   [value]
-  (int (Math/ceil value)))
+  (if (exact? value)
+    #?(:clj (normalise-exact (exact-ceil value))
+       :cljs nil)
+    (int (Math/ceil value))))
 
 (defn floor
   "Floor call which converts return value to int to simplify later type checking.
 
   - value: Value as source for floor.
   - returns: floor of value as an int.
+    On the JVM an exact value (Long, BigInt, Ratio) uses integer arithmetic only, no double is used.
 
 eg:
 ```clojure
@@ -84,7 +97,10 @@ eg:
 ```
 "
   [value]
-  (int (Math/floor value)))
+  (if (exact? value)
+    #?(:clj (normalise-exact (exact-floor value))
+       :cljs nil)
+    (int (Math/floor value))))
 
 (defn div
   "Do division in format consistent between ClojureScript (which has no ratio) and Clojure.
@@ -106,15 +122,18 @@ eg:
 
   - values1: First value to be used in difference.
   - value2: Second value to be used in difference.
-  - returns: abs(value2 - value1)
+  - returns: abs(value2 - value1), of the same numeric type, so an exact (Long, BigInt, Ratio) difference stays exact.
 
 eg:
 ```clojure
   (diff 1 2) => 1
+  (diff 1/2 2) => 3/2
 ```
 "
   [value1 value2]
-  (Math/abs (- value1 value2)))
+  ;; Not Math/abs, which has no Ratio overload and throws.
+  (let [difference (- value1 value2)]
+    (if (neg? difference) (- difference) difference)))
 
 (defn mult
   "Multiply to 4 decimal places.

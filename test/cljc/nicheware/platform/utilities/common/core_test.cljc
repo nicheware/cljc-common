@@ -280,7 +280,15 @@
     (t/is (= 1
              (sut/snap 0.5)))
     (t/is (= 1
-             (sut/snap 1)))))
+             (sut/snap 1))))
+
+  #?(:clj
+     (t/testing "JVM: snap a Ratio exactly"
+       (t/is (= 1 (sut/snap 1/2)))
+       (t/is (= -1 (sut/snap -1/2)))
+       (t/is (= 2 (sut/snap 3/2)))
+       (t/is (= -2 (sut/snap -3/2)))
+       (t/is (= Long (type (sut/snap 3/2))) "Whole result is a Long, not a BigInt"))))
 
 (t/deftest test-negate
   (t/testing "Negate positive"

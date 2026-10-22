@@ -517,14 +517,22 @@ eg
   [number]
   (- 0 number))
 
+(declare normalise-whole)
+
 (defn snap
   "Snaps the number to its biggest magnitude from 0. This means a ceiling for positive
    numbers and a floor for negative numbers
 
-  - number: integer to be snapped.
-  - returns: snapped integer"
+  - number: number to be snapped, eg 1/2 => 1 and -1/2 => -1.
+  - returns: snapped integer. On the JVM a Ratio is snapped with integer arithmetic only, no double is used."
   [number]
-  (int (if (> number 0) (Math/ceil number) (Math/floor number))))
+  #?(:clj (if (ratio? number)
+            ;; A Ratio is never whole, so the snap is always one step beyond the truncated quotient.
+            (let [n (numerator number)
+                  q (quot n (denominator number))]
+              (normalise-whole (if (pos? n) (inc' q) (dec' q))))
+            (int (if (> number 0) (Math/ceil number) (Math/floor number))))
+     :cljs (int (if (> number 0) (Math/ceil number) (Math/floor number)))))
 
 (defn ^:no-doc exact-number?
   "True if value is an exact number (integer or Ratio). Always false in ClojureScript,
