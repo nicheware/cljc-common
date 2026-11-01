@@ -43,6 +43,7 @@
                         ;; compiler will not load on a modern JDK without this. Scoped to :dev so
                         ;; it does not leak into the published pom - it is only needed to build.
                         [javax.xml.bind/jaxb-api "2.3.1"]
+                        [org.clojure/test.check "0.9.0"]
                         ]
          :source-paths ["dev"]
          :resource-paths ["env/dev/resources"]

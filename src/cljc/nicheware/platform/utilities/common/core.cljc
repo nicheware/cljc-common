@@ -19,7 +19,7 @@ There are groups of functions within common.core that deal with:
 |vector functions| [[vec-remove-nil]], [[find-by-pred]], [[find-element]], [[replace-element-by-pred]], [[replace-element]]|
 |string functions| [[after]], [[before]], [[before-last]], [[str-to-int]]|
 |cross-platform functions| [[rand-uuid]], [[parse-int]], [[current-time-millis]], [[edn-read]]|
-|canonical printing| [[canonical-edn-str]]|
+|canonical printing| [[canonical-edn-str]], [[canonical-edn-pretty-str]]|
 |slugs & digests| [[slugify]], [[truncate-on-boundary]], [[sha256-hex]] (Clojure only)|
 |function composition| [[compose-fns]]|
 |exceptions| [[throw-illegal-arg]]|
@@ -2196,6 +2196,157 @@ eg:
             #?@(:clj [*print-dup* false
                       *print-namespace-maps* false])]
     (canonical-edn* value)))
+
+(def ^:no-doc pretty-defaults
+  "Options of [[canonical-edn-pretty-str]] when not supplied."
+  {:width 100 :first-keys [] :last-keys []})
+
+(def ^:no-doc pretty-value-indent
+  "Spaces by which a map value placed on the line after its key is indented relative to that key."
+  2)
+
+(defn ^:no-doc validate-pretty-opts
+  "Throws unless opts holds a positive integer :width and sequential :first-keys and :last-keys."
+  [{:keys [width first-keys last-keys]}]
+  (when-not (pos-int? width)
+    (throw-illegal-arg "canonical-edn-pretty-str: :width must be a positive integer"))
+  (when-not (and (sequential? first-keys) (sequential? last-keys))
+    (throw-illegal-arg "canonical-edn-pretty-str: :first-keys and :last-keys must be sequential")))
+
+(defn ^:no-doc ordered-entries
+  "The entries of m in print order: the present :first-keys in the order listed, the remaining entries
+   as [[canonical-edn-str]] sorts them, then the present :last-keys in the order listed. A key named by
+   both options counts as a first key. Looks keys up in a plain map, as the comparator of a sorted map
+   may not accept the named keys."
+  [m {:keys [first-keys last-keys]}]
+  (let [plain   (into {} m)
+        present (fn [ks] (filter #(contains? plain %) (distinct ks)))
+        firsts  (present first-keys)
+        lasts   (remove (let [first-set (set firsts)] #(contains? first-set %)) (present last-keys))
+        pinned  (set (concat firsts lasts))]
+    (concat (map #(find plain %) firsts)
+            (->> plain
+                 (remove (fn [[k _]] (contains? pinned k)))
+                 (sort-by (fn [[k v]] [(canonical-edn-str k) (canonical-edn-str v)])))
+            (map #(find plain %) lasts))))
+
+(defn ^:no-doc pretty-branch
+  "Layout node of a non-empty collection. :text is its inline form."
+  [open close items]
+  {:open  open
+   :close close
+   :items items
+   :text  (str open (str/join " " (map :text items)) close)})
+
+(defn ^:no-doc pretty-node
+  "Layout tree of an already validated value. Every node has its inline :text. An atom or empty collection
+   has nothing else; a map entry adds :entry-key and :entry-value; a collection is a [[pretty-branch]]."
+  [v opts]
+  (let [node #(pretty-node % opts)
+        entry (fn [[k value]]
+                (let [key-node   (node k)
+                      value-node (node value)]
+                  {:entry-key   key-node
+                   :entry-value value-node
+                   :text        (str (:text key-node) " " (:text value-node))}))]
+    (cond
+      (not (and (or (map? v) (set? v) (sequential? v)) (seq v)))
+      {:text (canonical-edn-str v)}
+
+      (map? v) (pretty-branch "{" "}" (mapv entry (ordered-entries v opts)))
+      (set? v) (pretty-branch "#{" "}" (mapv node (sort-by canonical-edn-str v)))
+      :else    (pretty-branch "[" "]" (mapv node v)))))
+
+(defn ^:no-doc pretty-newline
+  "A line break followed by an indent to the given column."
+  [column]
+  (apply str "\n" (repeat column " ")))
+
+(declare pretty-render)
+
+(defn ^:no-doc pretty-render-entry
+  "Text of a map entry that does not fit inline: the key, then its value indented on the next line."
+  [{:keys [entry-key entry-value]} column trailing width]
+  (let [value-column (+ column pretty-value-indent)]
+    (str (pretty-render entry-key column 0 width)
+         (pretty-newline value-column)
+         (pretty-render entry-value value-column trailing width))))
+
+(defn ^:no-doc pretty-render-branch
+  "Text of a collection that does not fit inline: one item per line, aligned after the opening delimiter.
+   Only the last item shares its line with the closing delimiter, so only it counts that delimiter."
+  [{:keys [open close items]} column trailing width]
+  (let [item-column (+ column (count open))
+        last-index  (dec (count items))
+        render-item (fn [index item]
+                      (pretty-render item
+                                     item-column
+                                     (if (= index last-index) (+ (count close) trailing) 0)
+                                     width))]
+    (str open
+         (str/join (pretty-newline item-column) (map-indexed render-item items))
+         close)))
+
+(defn ^:no-doc pretty-render
+  "Text of a layout node starting at column, with trailing closing delimiters to follow it on its last line."
+  [{:keys [text entry-key items] :as node} column trailing width]
+  (cond
+    (<= (+ column (count text) trailing) width) text
+    entry-key                                   (pretty-render-entry node column trailing width)
+    items                                       (pretty-render-branch node column trailing width)
+    :else                                       text))
+
+(defn canonical-edn-pretty-str
+  "Prints an EDN value as canonical, readable multi-line text, for files people read and diff.
+
+   Prints the same value as [[canonical-edn-str]], laid out to a width. Use that function, not this one, as
+   the input to a content digest. The layout is a pure function of the value and opts, so two values that
+   are `=` produce the identical text.
+
+   - value: EDN data to print, under the rules of [[canonical-edn-str]].
+   - opts: optional map of:
+     - :width: positive integer, the widest line wanted. Default 100.
+     - :first-keys: keys moved to the front of any map holding them, in the order listed. Default [].
+     - :last-keys: keys moved to the back of any map holding them, in the order listed. Default [].
+       A key named in both options counts as a first key.
+   - returns: EDN text with no trailing newline, readable by [[edn-read]]. Reading it gives the value:
+     `(canonical-edn-str (edn-read text))` equals `(canonical-edn-str value)` at any width and with any opts.
+   - throws: IllegalArgumentException for the values [[canonical-edn-str]] rejects, with the same message,
+     and for invalid opts.
+
+   Layout:
+
+   - A form whose text fits in the remaining width, including any closing delimiters that follow it,
+     prints inline. Without :first-keys and :last-keys that text is exactly what [[canonical-edn-str]]
+     prints; with them a map moves its named keys whether it is inline or not.
+   - Otherwise a map prints one entry per line and a vector or set one element per line, the first on the
+     line of the opening delimiter and the others aligned with it.
+   - A map entry that does not fit on a line prints its key, then its value on the next line, indented two
+     spaces from the key. The value is then laid out by these same rules, as is a key too wide for a line.
+   - An atom or an empty collection is never split. A line exceeds the width only when it holds a single
+     such form, with its indentation and any delimiters.
+
+eg:
+```clojure
+(canonical-edn-pretty-str {:b [1 2] :a 1})
+=> \"{:a 1 :b [1 2]}\"
+
+(canonical-edn-pretty-str {:b [1 2] :a 1} {:width 10})
+=> \"{:a 1\\n :b [1 2]}\"
+
+(canonical-edn-pretty-str {:b [1 2] :a 1} {:width 6})
+=> \"{:a 1\\n :b\\n   [1\\n    2]}\"
+
+(canonical-edn-pretty-str {:b 2 :a 1 :c 3} {:first-keys [:c] :last-keys [:a]})
+=> \"{:c 3 :b 2 :a 1}\"
+```
+"
+  ([value] (canonical-edn-pretty-str value {}))
+  ([value opts]
+   (let [{:keys [width] :as resolved} (merge pretty-defaults opts)]
+     (validate-pretty-opts resolved)
+     (canonical-edn-str value)
+     (pretty-render (pretty-node value resolved) 0 0 width))))
 
 ;; =========================== Slug and digest functions =============================
 

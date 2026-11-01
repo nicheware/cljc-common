@@ -4,6 +4,12 @@
             [clojure.string :as str]
             #?(:clj [clojure.test :as t]
                :cljs [cljs.test :as t :include-macros true])
+            [clojure.test.check]
+            [clojure.test.check.generators :as gen]
+            #?(:clj [clojure.test.check.properties :as prop]
+               :cljs [clojure.test.check.properties :as prop :include-macros true])
+            #?(:clj [clojure.test.check.clojure-test :refer [defspec]]
+               :cljs [clojure.test.check.clojure-test :refer-macros [defspec]])
             [nicheware.platform.utilities.common.core :as common]))
 
 ;; ================================== Sample data ==================================
@@ -1853,6 +1859,283 @@
        (t/is (= "canonical-edn-str: unsupported type: clojure.lang.Atom"
                 (try (sut/canonical-edn-str (atom "secret"))
                      (catch IllegalArgumentException ex (.getMessage ex))))))))
+
+(def pretty-sample
+  {:name "A \"quoted\" name\nwith a newline"
+   :rows [[1 2 3] '(4 5) []]
+   :tags #{:alpha :beta/gamma 'sym}
+   :nested {:deep {:deeper [{:a 1 :b 2} {:a 3 :b 4}]} :empty {} :none #{}}
+   :when #inst "2026-08-27T09:30:00.000Z"
+   :id #uuid "abcdef00-1234-4000-8000-00000000000a"
+   ["composite" :key] {[:another "composite"] nil}
+   nil false})
+
+(defn pretty-reads-back?
+  "True when the pretty text of value reads back to value, compared by canonical string."
+  [value opts]
+  (= (sut/canonical-edn-str value)
+     (sut/canonical-edn-str (sut/edn-read (sut/canonical-edn-pretty-str value opts)))))
+
+(defn atom-count
+  "The number of unsplittable forms on a line whose atoms hold no whitespace, brackets or braces."
+  [line]
+  (count (re-seq #"\[\]|\{\}|#\{\}|[^\s\[\]{}#]+" line)))
+
+(defn lines-within-width?
+  "True when every line of text is within width, or holds a single atom."
+  [text width]
+  (every? #(or (<= (count %) width) (<= (atom-count %) 1))
+          (str/split-lines text)))
+
+(t/deftest test-canonical-edn-pretty-str-inline
+  (t/testing "A value that fits prints exactly as canonical-edn-str prints it"
+    (t/are [value] (= (sut/canonical-edn-str value) (sut/canonical-edn-pretty-str value))
+      nil
+      1
+      "text"
+      []
+      {}
+      #{}
+      '(1 2)
+      {:b [1 2] :a #{:z :y} nil 1})
+    (t/is (= (sut/canonical-edn-str canonical-sample)
+             (sut/canonical-edn-pretty-str canonical-sample {:width 1000}))))
+
+  (t/testing "Exactly the width is inline, one less is not"
+    (let [value {:a 1 :b 2}
+          text  (sut/canonical-edn-str value)]
+      (t/is (= text (sut/canonical-edn-pretty-str value {:width (count text)})))
+      (t/is (= "{:a 1\n :b 2}" (sut/canonical-edn-pretty-str value {:width (dec (count text))}))))))
+
+(t/deftest test-canonical-edn-pretty-str-layout
+  (t/testing "A map prints one entry per line, a vector or set one element per line"
+    (t/are [expected value width] (= expected (sut/canonical-edn-pretty-str value {:width width}))
+      "{:a 1\n :b 2}"     {:b 2 :a 1}    6
+      "[10\n 20\n 30]"    [10 20 30]     5
+      "[10\n 20\n 30]"    '(10 20 30)    5
+      "#{10\n  20\n  30}" #{30 10 20}    5))
+
+  (t/testing "A value that does not fit after its key goes on the next line, indented"
+    (t/is (= "{:a\n   [:long-1\n    :long-2]\n :b 1}"
+             (sut/canonical-edn-pretty-str {:a [:long-1 :long-2] :b 1} {:width 12})))
+    (t/is (= "{:a\n   [:long-1 :long-2]}"
+             (sut/canonical-edn-pretty-str {:a [:long-1 :long-2]} {:width 21}))))
+
+  (t/testing "Closing delimiters count against the width of the line they end"
+    (t/is (= "[[1 2]\n [3 4]]" (sut/canonical-edn-pretty-str [[1 2] [3 4]] {:width 7})))
+    (t/is (= "[[1\n  2]]" (sut/canonical-edn-pretty-str [[1 2]] {:width 6})))
+    (t/is (= "{:a\n   [1 2]}" (sut/canonical-edn-pretty-str {:a [1 2]} {:width 9}))))
+
+  (t/testing "A composite key too wide for a line is itself laid out"
+    (t/is (= "{[:long-1\n  :long-2]\n   1}"
+             (sut/canonical-edn-pretty-str {[:long-1 :long-2] 1} {:width 12}))))
+
+  (t/testing "An atom wider than the width stays whole"
+    (t/are [value] (= (sut/canonical-edn-str value) (sut/canonical-edn-pretty-str value {:width 1}))
+      "a string with spaces"
+      :a-long-keyword
+      #inst "2026-08-27T09:30:00.000Z"
+      #uuid "abcdef00-1234-4000-8000-00000000000a"
+      []
+      {}
+      #{}))
+
+  (t/testing "The docstring examples"
+    (t/are [expected width] (= expected (sut/canonical-edn-pretty-str {:b [1 2] :a 1} {:width width}))
+      "{:a 1 :b [1 2]}"            100
+      "{:a 1\n :b [1 2]}"          10
+      "{:a 1\n :b\n   [1\n    2]}" 6))
+
+  (t/testing "No trailing newline at any width"
+    (doseq [width [1 2 5 10 20 100]]
+      (t/is (not (str/ends-with? (sut/canonical-edn-pretty-str pretty-sample {:width width}) "\n"))))))
+
+(t/deftest test-canonical-edn-pretty-str-key-order
+  (t/testing "Named keys move to the front or back of any map, in the order listed, others stay sorted"
+    (t/are [expected opts] (= expected (sut/canonical-edn-pretty-str {:a 1 :b 2 :c 3 :d 4} opts))
+      "{:a 1 :b 2 :c 3 :d 4}" {}
+      "{:c 3 :a 1 :b 2 :d 4}" {:first-keys [:c]}
+      "{:d 4 :c 3 :a 1 :b 2}" {:first-keys [:d :c]}
+      "{:b 2 :c 3 :d 4 :a 1}" {:last-keys [:a]}
+      "{:c 3 :d 4 :b 2 :a 1}" {:last-keys [:b :a]}
+      "{:d 4 :b 2 :c 3 :a 1}" {:first-keys [:d] :last-keys [:a]}
+      "{:a 1 :b 2 :c 3 :d 4}" {:first-keys [:absent] :last-keys [:missing]}))
+
+  (t/testing "Nested maps, multi-line maps and maps inside sets and keys"
+    (t/is (= "{:b {:a 2 :i 1}\n :c 3\n :i 4}"
+             (sut/canonical-edn-pretty-str {:i 4 :b {:a 2 :i 1} :c 3} {:width 15 :first-keys [:b]
+                                                                       :last-keys [:i]})))
+    (t/is (= "#{{:z 1 :a 2}}" (sut/canonical-edn-pretty-str #{{:a 2 :z 1}} {:first-keys [:z]})))
+    (t/is (= "{{:z 1 :a 2} 3}" (sut/canonical-edn-pretty-str {{:a 2 :z 1} 3} {:first-keys [:z]}))))
+
+  (t/testing "A repeated key, or a key named by both options, prints once, as a first key"
+    (t/is (= "{:a 1 :b 2}" (sut/canonical-edn-pretty-str {:a 1 :b 2} {:first-keys [:a :a] :last-keys [:a]}))))
+
+  (t/testing "nil and false can be named"
+    (t/is (= "{nil 1 :a 2 false 3}"
+             (sut/canonical-edn-pretty-str {:a 2 false 3 nil 1} {:first-keys [nil] :last-keys [false]}))))
+
+  (t/testing "Sorted maps accept keys their comparator cannot compare"
+    (t/is (= "{:a 1 :b 2}" (sut/canonical-edn-pretty-str (sorted-map :b 2 :a 1) {:first-keys ["text"]}))))
+
+  (t/testing "Set elements stay in canonical order whatever their maps pin"
+    (t/is (= "#{{:z 0 :a 1} {:z -1 :a 2}}"
+             (sut/canonical-edn-pretty-str #{{:a 1 :z 0} {:a 2 :z -1}} {:first-keys [:z]}))))
+
+  (t/testing "Pinned keys do not change what fits"
+    (t/is (= "{:b 2\n :a 1}" (sut/canonical-edn-pretty-str {:a 1 :b 2} {:width 6 :first-keys [:b]})))
+    (t/is (= "{:b 2 :a 1}" (sut/canonical-edn-pretty-str {:a 1 :b 2} {:width 11 :first-keys [:b]})))))
+
+(t/deftest test-canonical-edn-pretty-str-round-trip
+  (t/testing "Reads back at every width"
+    (doseq [width (concat (range 1 40) [50 100 1000])
+            opts  [{} {:first-keys [:when :name] :last-keys [:rows]}]]
+      (t/is (pretty-reads-back? pretty-sample (assoc opts :width width)) (str "width " width))))
+
+  #?(:clj
+     (t/testing "JVM-only numbers and characters read back"
+       (let [value {:r 2/3 :m 1.25M :e 100M :big 12345678901234567890N :d 1.0E10 :c [\a \newline \space]}]
+         (doseq [width [1 5 20 100]]
+           (t/is (pretty-reads-back? value {:width width})))))))
+
+(t/deftest test-canonical-edn-pretty-str-determinism
+  (t/testing "Insertion order has no effect at any width"
+    (let [entries (map (fn [n] [(keyword (str "k" n)) n]) (range 40))
+          forward (into {} entries)
+          reverse-order (into {} (reverse entries))
+          shuffled (into {} (shuffle entries))]
+      (doseq [width [1 10 50 100]]
+        (t/is (= (sut/canonical-edn-pretty-str forward {:width width})
+                 (sut/canonical-edn-pretty-str reverse-order {:width width})
+                 (sut/canonical-edn-pretty-str shuffled {:width width})
+                 (sut/canonical-edn-pretty-str (into (sorted-map) entries) {:width width}))))))
+
+  (t/testing "Metadata has no effect"
+    (t/is (= (sut/canonical-edn-pretty-str {:a [1 2]} {:width 3})
+             (sut/canonical-edn-pretty-str (with-meta {:a (with-meta [1 2] {:m 1})} {:m 2}) {:width 3}))))
+
+  (t/testing "Print vars bound to hostile values have no effect"
+    (doseq [width [1 20 100]]
+      (t/is (= (sut/canonical-edn-pretty-str pretty-sample {:width width})
+               (binding [*print-length* 1
+                         *print-level* 1
+                         *print-meta* true
+                         *print-readably* nil
+                         *print-dup* true
+                         *print-namespace-maps* true]
+                 (sut/canonical-edn-pretty-str pretty-sample {:width width})))))))
+
+(t/deftest test-canonical-edn-pretty-str-illegal
+  (t/testing "Throws for what canonical-edn-str rejects"
+    (doseq [value [#?(:clj Double/NaN :cljs js/NaN)
+                   #?(:clj Double/POSITIVE_INFINITY :cljs js/Infinity)
+                   [1 {:a #?(:clj Double/NaN :cljs js/NaN)}]
+                   inc
+                   (atom 1)
+                   (->CanonicalTestRecord 1)
+                   {:nested [(->CanonicalTestRecord 1)]}
+                   {(atom 1) :in-a-key}
+                   #{(atom 1)}
+                   #?(:clj (Object.) :cljs (js-obj))
+                   #?(:clj (java.util.HashMap.) :cljs (array 1 2))]]
+      (t/is (illegal-arg? #(sut/canonical-edn-pretty-str value)) (str "expected illegal: " (type value)))
+      (t/is (illegal-arg? #(sut/canonical-edn-pretty-str value {:width 1})) (str "expected illegal: " (type value)))))
+
+  #?(:clj
+     (t/testing "The same message as canonical-edn-str, which names the type and not the value"
+       (t/is (= "canonical-edn-str: unsupported type: clojure.lang.Atom"
+                (try (sut/canonical-edn-pretty-str [(atom "secret")])
+                     (catch IllegalArgumentException ex (.getMessage ex)))))))
+
+  (t/testing "Invalid opts throw"
+    (doseq [opts [{:width 0} {:width -1} {:width 1.5} {:width nil} {:width "100"}
+                  {:first-keys :a} {:last-keys :a} {:first-keys nil}]]
+      (t/is (illegal-arg? #(sut/canonical-edn-pretty-str {} opts)) (pr-str opts)))))
+
+;; ---- Generated values
+
+(def gen-simple-name
+  (gen/fmap (fn [[c cs]] (apply str c cs))
+            (gen/tuple (gen/elements ["a" "b" "k" "x" "z"])
+                       (gen/vector (gen/elements ["a" "b" "1" "2" "-" "_" "?"]) 0 8))))
+
+(def gen-keyword
+  (gen/one-of [(gen/fmap keyword gen-simple-name)
+               (gen/fmap (fn [[n s]] (keyword n s)) (gen/tuple gen-simple-name gen-simple-name))]))
+
+(def gen-symbol
+  (gen/one-of [(gen/fmap symbol gen-simple-name)
+               (gen/fmap (fn [[n s]] (symbol n s)) (gen/tuple gen-simple-name gen-simple-name))]))
+
+(def gen-double
+  (gen/fmap #(if (zero? %) 0.0 %) (gen/double* {:infinite? false :NaN? false})))
+
+(def gen-word-atom
+  "Atoms whose canonical text has no whitespace, brackets or braces, so a line can be counted."
+  (gen/one-of [gen-keyword
+               gen-symbol
+               gen/int
+               gen/boolean
+               gen-double
+               (gen/return nil)
+               gen-simple-name
+               #?(:clj (gen/fmap (fn [[n d]] (/ n (inc (Math/abs (long d))))) (gen/tuple gen/int gen/int)))
+               #?(:clj (gen/fmap bigint gen/int))
+               #?(:clj (gen/fmap #(java.math.BigDecimal/valueOf (long %) 2) gen/int))]))
+
+(def gen-any-atom
+  (gen/one-of [gen-word-atom
+               gen/string
+               gen/uuid
+               gen/char-ascii
+               (gen/fmap #?(:clj #(java.util.Date. (long %)) :cljs #(js/Date. %))
+                         (gen/choose 0 4102444800000))]))
+
+(defn gen-edn
+  "EDN values over the given atoms: nested maps, vectors, lists and sets, with composite keys."
+  [gen-atom]
+  (gen/recursive-gen (fn [inner]
+                       (gen/one-of [(gen/vector inner)
+                                    (gen/fmap #(apply list %) (gen/vector inner))
+                                    (gen/set inner)
+                                    (gen/map inner inner)]))
+                     gen-atom))
+
+(def gen-width
+  (gen/one-of [(gen/return 1) (gen/choose 1 30) (gen/choose 30 120)]))
+
+(defspec spec-canonical-edn-pretty-str-reads-back 200
+  (prop/for-all [value (gen-edn gen-any-atom)
+                 width gen-width]
+    (pretty-reads-back? value {:width width})))
+
+(defspec spec-canonical-edn-pretty-str-pinned-keys-read-back 100
+  (prop/for-all [value (gen-edn gen-any-atom)
+                 width gen-width
+                 first-keys (gen/vector gen-word-atom 0 3)
+                 last-keys (gen/vector gen-word-atom 0 3)]
+    (pretty-reads-back? value {:width width :first-keys first-keys :last-keys last-keys})))
+
+(defspec spec-canonical-edn-pretty-str-width 200
+  (prop/for-all [value (gen-edn gen-word-atom)
+                 width gen-width]
+    (lines-within-width? (sut/canonical-edn-pretty-str value {:width width}) width)))
+
+(defspec spec-canonical-edn-pretty-str-inline-when-it-fits 100
+  (prop/for-all [value (gen-edn gen-any-atom)
+                 extra (gen/choose 0 5)]
+    (let [text (sut/canonical-edn-str value)]
+      (= text (sut/canonical-edn-pretty-str value {:width (+ (max 1 (count text)) extra)})))))
+
+(defspec spec-canonical-edn-pretty-str-insertion-order 100
+  (prop/for-all [[entries shuffled] (gen/bind (gen/map gen-keyword (gen-edn gen-word-atom))
+                                              (fn [m]
+                                                (let [entries (vec m)]
+                                                  (gen/tuple (gen/return entries)
+                                                             (gen/shuffle entries)))))
+                 width gen-width]
+    (= (sut/canonical-edn-pretty-str (into {} entries) {:width width})
+       (sut/canonical-edn-pretty-str (into {} shuffled) {:width width}))))
 
 ;; =========================== Slug and digest functions =============================
 

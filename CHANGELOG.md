@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 ### Added
+- `canonical-edn-pretty-str` in `common.core` - prints the same value as `canonical-edn-str` as readable multi-line text laid out to a `:width`, with `:first-keys` and `:last-keys` to pin map keys. For files people read and diff; `canonical-edn-str` remains the printer for digests.
 - `deep-merge-layers` in `common.core` - deep merges an ordered sequence of partial maps (lowest precedence first), dropping nil layers. Optional `{:directives? true}` enables in-map merge directives: `{:merge/append items}` / `{:merge/prepend items}` onto lower vectors/sets, and `{:merge/reset true ...}` to discard the lower sub-map.
 - `classify-by-namespace` in `common.core` - returns the value of the first `[ns-prefix value]` entry whose prefix matches a keyword's (dotted) namespace.
 

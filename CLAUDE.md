@@ -62,7 +62,8 @@ All namespaces live under `nicheware.platform.utilities.common`:
   `current-time-millis`, `edn-read`). Also `canonical-edn-str` — a deterministic EDN printer for content
   digests: `=` values always print identically (sorted map entries/set elements, every sequential as a vector,
   integers without `N`, BigDecimals trailing-zero stripped, UTC millisecond `#inst`, print vars and metadata
-  ignored; records/fns/NaN throw) — plus `slugify` (NFKD, locale-independent), `truncate-on-boundary`, and the
+  ignored; records/fns/NaN throw) — and `canonical-edn-pretty-str`, the same value as multi-line text laid out to
+  a `:width` with `:first-keys`/`:last-keys` pinning, for files people read and diff, never for digests — plus `slugify` (NFKD, locale-independent), `truncate-on-boundary`, and the
   JVM-only `sha256-hex`. Also the `debug` macro, whose on/off decision is made at macro-expansion time
   (env `COMMON_DEBUG=true` plus ns metadata `{:debug true}` or a `COMMON_DEBUG_CONFIG` EDN `:debug-on` regex
   list); when off it expands to nil. The ns self-`:require-macros` under ClojureScript so `:refer [debug]` works.
